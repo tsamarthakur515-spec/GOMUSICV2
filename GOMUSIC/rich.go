@@ -1,9 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"html"
+	"io"
+	"net/http"
 	"regexp"
 	"strings"
+	"time"
 
 	"github.com/amarnathcjd/gogram/telegram"
 )
@@ -11,6 +17,7 @@ import (
 var (
 	reImgSrc = regexp.MustCompile(`(?is)<img[^>]*src=["']([^"']+)["'][^>]*>`)
 	reTgBtn  = regexp.MustCompile(`(?is)<tg-button[^>]*>.*?</tg-button>`)
+	botHTTP  = &http.Client{Timeout: 20 * time.Second}
 )
 
 func richEsc(v string) string {
@@ -160,6 +167,97 @@ func htmlMediaOpts(caption string, markup telegram.ReplyMarkup) *telegram.MediaO
 	}
 }
 
+func msgBotChatID(msg *telegram.NewMessage) int64 {
+	if msg == nil {
+		return 0
+	}
+	if id := msg.ChannelID(); id != 0 {
+		return id
+	}
+	return msg.ChatID()
+}
+
+func replyMarkupToAPI(markup telegram.ReplyMarkup) map[string]any {
+	im, ok := markup.(*telegram.ReplyInlineMarkup)
+	if !ok || im == nil {
+		return nil
+	}
+	var rows [][]map[string]string
+	for _, row := range im.Rows {
+		if row == nil {
+			continue
+		}
+		var btns []map[string]string
+		for _, b := range row.Buttons {
+			if b == nil {
+				continue
+			}
+			item := map[string]string{"text": b.Text}
+			switch t := b.Type.(type) {
+			case *telegram.InlineButtonTypeCallback:
+				item["callback_data"] = string(t.Data)
+			case *telegram.InlineButtonTypeURL:
+				item["url"] = t.URL
+			default:
+				continue
+			}
+			btns = append(btns, item)
+		}
+		if len(btns) > 0 {
+			rows = append(rows, btns)
+		}
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return map[string]any{"inline_keyboard": rows}
+}
+
+func botAPIEdit(chatID int64, msgID int32, htmlText string, markup telegram.ReplyMarkup, caption bool) error {
+	if BotToken == "" || chatID == 0 || msgID == 0 {
+		return fmt.Errorf("bot api edit missing ids")
+	}
+	method := "editMessageText"
+	body := map[string]any{
+		"chat_id":                  chatID,
+		"message_id":               msgID,
+		"parse_mode":               "HTML",
+		"disable_web_page_preview": true,
+	}
+	if caption {
+		method = "editMessageCaption"
+		body["caption"] = htmlText
+	} else {
+		body["text"] = htmlText
+	}
+	if kb := replyMarkupToAPI(markup); kb != nil {
+		body["reply_markup"] = kb
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	resp, err := botHTTP.Post("https://api.telegram.org/bot"+BotToken+"/"+method, "application/json", bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	var parsed struct {
+		OK          bool   `json:"ok"`
+		Description string `json:"description"`
+	}
+	_ = json.Unmarshal(out, &parsed)
+	if parsed.OK {
+		return nil
+	}
+	desc := parsed.Description
+	if desc == "" {
+		desc = string(out)
+	}
+	return fmt.Errorf("%s", desc)
+}
+
 func sendHTML(client *telegram.Client, chat any, content string, markup telegram.ReplyMarkup) (*telegram.NewMessage, error) {
 	photo, raw := extractPhoto(content)
 	text := telegramHTML(raw)
@@ -182,16 +280,31 @@ func editHTML(msg *telegram.NewMessage, content string, markup telegram.ReplyMar
 	}
 	_, raw := extractPhoto(content)
 	text := telegramHTML(raw)
-	opts := htmlSendOpts(markup)
-	_, err := msg.Edit(text, opts)
+	chatID := msgBotChatID(msg)
+
+	// Same order as PANDA-MUSICV4 _edit_menu:
+	// edit_text first, then edit_caption. Both with parse_mode HTML.
+	// Bot API keeps <blockquote expandable> on caption edits; MTProto often drops it.
+	err := botAPIEdit(chatID, msg.ID, text, markup, false)
 	if err == nil || isNotModified(err) {
 		return nil
 	}
-	// Media captions sometimes reject the first edit path; retry HTML only.
-	// Never fall back to plain text — that strips <blockquote>.
-	_, err = msg.Client.EditMessage(msg.ChannelID(), msg.ID, text, opts)
+	err = botAPIEdit(chatID, msg.ID, text, markup, true)
 	if err == nil || isNotModified(err) {
 		return nil
+	}
+
+	if msg.Client != nil {
+		ents, plain := msg.Client.FormatMessage(text, "HTML")
+		_, err2 := msg.Client.EditMessage(chatID, msg.ID, plain, &telegram.SendOptions{
+			ParseMode:   "HTML",
+			Entities:    ents,
+			ReplyMarkup: markup,
+		})
+		if err2 == nil || isNotModified(err2) {
+			return nil
+		}
+		return err2
 	}
 	return err
 }
