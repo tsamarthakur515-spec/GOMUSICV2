@@ -1,0 +1,12 @@
+.env
+*.session
+*.dat
+downloads/
+log.txt
+vendor/
+gomusic
+libntgcalls.a
+libntgcalls.so
+*.so
+ntgcalls.zip
+ntgcalls_tmp/
