@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"math/rand"
+	"runtime"
 	"strings"
 	"time"
 
@@ -105,11 +106,41 @@ func blocked(m *telegram.NewMessage) bool {
 
 func startHomeKB() telegram.ReplyMarkup {
 	return mixedKeyboard([][][2]string{
-		{{"Add me", BotLink + "?startgroup=true"}},
+		{{"Add me to your group", BotLink + "?startgroup=true"}},
+		{{"Owner", fmt.Sprintf("tg://user?id=%d", OwnerID)}, {"About", "about_menu"}},
 		{{"Support", SupportGroup}, {"Updates", UpdatesChannel}},
-		{{"Help & Commands", "show_help"}},
-		{{"Owner", fmt.Sprintf("tg://user?id=%d", OwnerID)}},
+		{{"Help and commands", "show_help"}},
 	})
+}
+
+func aboutKB() telegram.ReplyMarkup {
+	return mixedKeyboard([][][2]string{
+		{{"Back", "go_back"}},
+	})
+}
+
+func startCaption(uid int64, name string) string {
+	return fmt.Sprintf(
+		"hey <a href='tg://user?id=%d'>%s</a>\n\n"+
+			"high quality fast music bot.\n"+
+			"add me to a group for audio / video vc.\n\n"+
+			"use the buttons below.",
+		uid, richEsc(name),
+	)
+}
+
+func aboutCaption() string {
+	return richHeading("about", 3) +
+		richKVTable([][2]string{
+			{"bot", "<code>" + richEsc(BotName) + "</code>"},
+			{"version", "<code>GOMUSIC v2</code>"},
+			{"language", "<code>Go</code>"},
+			{"telegram", "<code>gogram</code>"},
+			{"calls", "<code>ntgcalls v2.2.5</code>"},
+			{"player", "<code>ffmpeg + yt-dlp</code>"},
+			{"runtime", "<code>" + runtime.Version() + "</code>"},
+		}) +
+		richNote("telegram music bot written in go.\nsupports /play and /vplay in voice chat.")
 }
 
 func handleStart(m *telegram.NewMessage) error {
@@ -124,13 +155,7 @@ func handleStart(m *telegram.NewMessage) error {
 	addServedUser(uid)
 	addServedChat(chatID)
 	if m.IsPrivate() {
-		caption := richImg(photo) +
-			richNote(fmt.Sprintf("<p>hey <a href='tg://user?id=%d'>%s</a>, welcome aboard!</p><p>I am <b>%s</b> — a Telegram music player bot.</p>", uid, richEsc(name), richEsc(BotName))) +
-			richDetails("key features", richTable(nil, [][]string{
-				{"streaming", "play audio in voice chats"},
-				{"autoplay", "keeps the queue going automatically"},
-			}), true) +
-			richNote("powered by Shizu Music")
+		caption := richImg(photo) + startCaption(uid, name)
 		_, _ = sendHTML(Bot, chatID, caption, startHomeKB())
 		addBroadcastChat(chatID, "private")
 		return nil
@@ -140,10 +165,9 @@ func handleStart(m *telegram.NewMessage) error {
 		chatTitle = m.Chat.Title
 	}
 	caption := richImg(photo) +
-		fmt.Sprintf("<p>hey <a href='tg://user?id=%d'>%s</a>, this is <b>%s</b></p>", uid, richEsc(name), richEsc(BotName)) +
-		richNote(fmt.Sprintf("thanks for adding me in %s.", richEsc(chatTitle)))
+		fmt.Sprintf("hey <a href='tg://user?id=%d'>%s</a>\n\nthis is <b>%s</b>\nthanks for adding me in %s.", uid, richEsc(name), richEsc(BotName), richEsc(chatTitle))
 	_, _ = sendHTML(Bot, chatID, caption, mixedKeyboard([][][2]string{
-		{{"help", "show_help"}},
+		{{"help", "show_help"}, {"about", "about_menu"}},
 	}))
 	addBroadcastChat(chatID, "group")
 	return nil
@@ -157,8 +181,8 @@ func handleHelp(m *telegram.NewMessage) error {
 	uid := userIDOf(m)
 	name := userNameOf(m)
 	photo := StartPhotos[rand.Intn(len(StartPhotos))]
-	caption := richHeading("choose a category", 3) + richImg(photo) +
-		richNote(fmt.Sprintf(`<p>hey <a href="tg://user?id=%d">%s</a>, pick a category below.</p>`, uid, richEsc(name)))
+	caption := richHeading("help menu", 3) + richImg(photo) +
+		richNote(fmt.Sprintf("hey <a href=\"tg://user?id=%d\">%s</a>, tap a category.", uid, richEsc(name)))
 	_, _ = sendHTML(Bot, m.ChatID(), caption, helpKB())
 	return nil
 }
