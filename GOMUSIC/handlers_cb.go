@@ -92,38 +92,35 @@ func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 		if msg != nil {
 			_, _ = msg.Delete()
 		}
+	case "about_menu":
+		_, _ = cb.Answer("")
+		photo := StartPhotos[rand.Intn(len(StartPhotos))]
+		if msg != nil {
+			_ = editHTML(msg, richImg(photo)+aboutCaption(), aboutKB())
+		}
 	case "go_back":
 		_, _ = cb.Answer("")
 		uid := cb.Sender.ID
 		name := sanitizeDisplayName(cb.Sender.FirstName)
 		photo := StartPhotos[rand.Intn(len(StartPhotos))]
-		content := richImg(photo) +
-			richNote(fmt.Sprintf("<p>hey <a href='tg://user?id=%d'>%s</a>, welcome aboard!</p><p>I am <b>%s</b> — a Telegram music player bot.</p>", uid, richEsc(name), richEsc(BotName))) +
-			richDetails("key features", richTable(nil, [][]string{
-				{"streaming", "play audio in voice chats"},
-				{"autoplay", "keeps the queue going automatically"},
-			}), true) +
-			richNote("powered by Shizu Music")
 		if msg != nil {
-			_ = editHTML(msg, content, startHomeKB())
+			_ = editHTML(msg, richImg(photo)+startCaption(uid, name), startHomeKB())
 		}
 	case "show_help":
 		_, _ = cb.Answer("")
 		uid := cb.Sender.ID
 		name := sanitizeDisplayName(cb.Sender.FirstName)
 		photo := StartPhotos[rand.Intn(len(StartPhotos))]
-		content := richHeading("choose a category", 3) + richImg(photo) +
-			richNote(fmt.Sprintf("<p>hey <a href='tg://user?id=%d'>%s</a>, pick a category.</p>", uid, richEsc(name))) +
-			supportUpdatesPills()
 		if msg != nil {
-			_ = editHTML(msg, content, helpHomeKB())
+			_ = editHTML(msg, richImg(photo)+helpListCaption(uid, name), helpHomeKB())
 		}
 	default:
 		if strings.HasPrefix(data, "help_") {
 			_, _ = cb.Answer("")
 			if h, ok := helpTexts[data]; ok {
 				photo := StartPhotos[rand.Intn(len(StartPhotos))]
-				text := richImg(photo) + richHeading(h.title, 3) + "<p>" + h.desc + "</p>" + richTable([]string{"command", "description"}, h.rows) + supportUpdatesPills()
+				body := smallcaps(h.title) + "\n\n" + smallcaps(h.desc) + "\n\n" + richTable([]string{"command", "description"}, h.rows)
+				text := richImg(photo) + wrapBQ(body)
 				if msg != nil {
 					_ = editHTML(msg, text, backKB())
 				}
@@ -154,10 +151,9 @@ func notifyOwner(me *telegram.UserObj, asst string) {
 	if LoggerID == 0 || me == nil {
 		return
 	}
-	content := richHeading("bot started", 3) + richKVTable([][2]string{
-		{"bot", "@" + richEsc(me.Username)},
-		{"assistant", "@" + richEsc(asst)},
-	})
+	content := wrapBQ(smallcaps("bot started") + "\n\n" +
+		smallcaps("bot") + " : @" + richEsc(me.Username) + "\n" +
+		smallcaps("assistant") + " : @" + richEsc(asst))
 	if _, err := sendHTML(Bot, LoggerID, content, nil); err != nil {
 		log.Println("Logger Notification Error :", err)
 	}

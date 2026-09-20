@@ -13,11 +13,13 @@ import (
 )
 
 func nowPlayingCaption(song Song) string {
-	return "<b>sᴛʀᴇᴀᴍɪɴɢ ɪɴ ᴠᴄ</b>\n\n" +
-		"ᴛɪᴛʟᴇ : " + richEsc(shortTitle(song.Title, 42)) + "\n" +
-		"ᴅᴜʀᴀᴛɪᴏɴ : " + richEsc(song.Duration) + "\n" +
-		"ʀᴇƎᴜᴇsᴛ ʙʏ : " + richEsc(song.Requester) + "\n\n" +
-		"ᴘᴏᴡᴇʀᴇᴅ ʙʏ : sʜɪзᴜ ᴍᴜѕɪᴄ"
+	body := smallcaps("streaming in vc") + "\n\n" +
+		smallcaps("title") + " : " + richEsc(smallcaps(shortTitle(song.Title, 42))) + "\n" +
+		smallcaps("duration") + " : " + richEsc(smallcaps(song.Duration)) + "\n" +
+		smallcaps("request by") + " : " + richEsc(song.Requester) + "\n\n" +
+		smallcaps("powered by") + " : " + smallcaps("gomusic") + "\n" +
+		smallcaps("yt music api powered by") + " : " + smallcaps("aruyt api")
+	return wrapBQ(body)
 }
 
 func nowPlayingKB(elapsed, total float64) telegram.ReplyMarkup {
@@ -74,7 +76,7 @@ func sendNowPlaying(chatID int64, song Song) *telegram.NewMessage {
 }
 
 func playSong(chatID int64, message *telegram.NewMessage, song Song) error {
-	loading := "<b>ʟᴏᴀᴅɪɴɢ...</b>\n" + richEsc(shortTitle(song.Title, 40))
+	loading := wrapBQ("<b>" + smallcaps("loading") + "...</b>\n" + richEsc(shortTitle(song.Title, 40)))
 	if message != nil {
 		_ = editHTML(message, loading, nil)
 	} else {
@@ -107,12 +109,12 @@ fallback:
 		mediaPath, err := resolveStream(song.URL, song.Video)
 		if err != nil {
 			removeFromQueue(chatID, 0)
-			_, _ = sendHTML(Bot, chatID, richHeading("download failed", 3)+richNote("<code>"+richEsc(err.Error())+"</code>"), nil)
+			_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("download failed")+"\n<code>"+richEsc(err.Error())+"</code>"), nil)
 			return err
 		}
 		if song.Video && !fileHasVideo(mediaPath) {
 			removeFromQueue(chatID, 0)
-			_, _ = sendHTML(Bot, chatID, richHeading("vplay failed", 3)+richNote("API ne audio file di, video stream nahi."), nil)
+			_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("vplay failed")+"\n"+smallcaps("api gave audio file, not video stream.")), nil)
 			return fmt.Errorf("no video track in %s", mediaPath)
 		}
 		if !song.Video {
@@ -138,7 +140,7 @@ streamStarted:
 		}
 		if startErr != nil {
 			removeFromQueue(chatID, 0)
-			_, _ = sendHTML(Bot, chatID, richHeading("playback failed", 3)+richNote("<code>"+richEsc(startErr.Error())+"</code>"), nil)
+			_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("playback failed")+"\n<code>"+richEsc(startErr.Error())+"</code>"), nil)
 			return startErr
 		}
 	}

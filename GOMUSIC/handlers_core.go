@@ -106,41 +106,50 @@ func blocked(m *telegram.NewMessage) bool {
 
 func startHomeKB() telegram.ReplyMarkup {
 	return mixedKeyboard([][][2]string{
-		{{"Add me to your group", BotLink + "?startgroup=true"}},
-		{{"Owner", fmt.Sprintf("tg://user?id=%d", OwnerID)}, {"About", "about_menu"}},
-		{{"Support", SupportGroup}, {"Updates", UpdatesChannel}},
-		{{"Help and commands", "show_help"}},
+		{{"➕ " + smallcaps("add me in your group") + " ➕", BotLink + "?startgroup=true"}},
+		{{smallcaps("owner"), fmt.Sprintf("tg://user?id=%d", OwnerID)}, {smallcaps("about"), "about_menu"}},
+		{{smallcaps("support"), SupportGroup}, {smallcaps("update"), UpdatesChannel}},
+		{{smallcaps("help and commands"), "show_help"}},
 	})
 }
 
 func aboutKB() telegram.ReplyMarkup {
 	return mixedKeyboard([][][2]string{
-		{{"Back", "go_back"}},
+		{{smallcaps("back"), "go_back"}},
 	})
 }
 
 func startCaption(uid int64, name string) string {
-	return fmt.Sprintf(
-		"hey <a href='tg://user?id=%d'>%s</a>\n\n"+
-			"high quality fast music bot.\n"+
-			"add me to a group for audio / video vc.\n\n"+
-			"use the buttons below.",
-		uid, richEsc(name),
-	)
+	mention := fmt.Sprintf("<a href='tg://user?id=%d'>%s</a>", uid, richEsc(name))
+	body := smallcaps("hey") + " " + mention + "\n\n" +
+		smallcaps("i am a high quality fast music bot.") + "\n" +
+		smallcaps("add me to your group and enjoy audio / video streaming.") + "\n\n" +
+		smallcaps("use the buttons below.")
+	return wrapBQ(body)
 }
 
 func aboutCaption() string {
-	return richHeading("about", 3) +
-		richKVTable([][2]string{
-			{"bot", "<code>" + richEsc(BotName) + "</code>"},
-			{"version", "<code>GOMUSIC v2</code>"},
-			{"language", "<code>Go</code>"},
-			{"telegram", "<code>gogram</code>"},
-			{"calls", "<code>ntgcalls v2.2.5</code>"},
-			{"player", "<code>ffmpeg + yt-dlp</code>"},
-			{"runtime", "<code>" + runtime.Version() + "</code>"},
-		}) +
-		richNote("telegram music bot written in go.\nsupports /play and /vplay in voice chat.")
+	body := smallcaps("about") + "\n\n" +
+		smallcaps("high quality telegram music bot.") + "\n" +
+		smallcaps("supports audio and video streaming.") + "\n" +
+		smallcaps("powered by go + gogram + ntgcalls.") + "\n\n" +
+		smallcaps("bot") + " : <code>" + richEsc(BotName) + "</code>\n" +
+		smallcaps("version") + " : <code>GOMUSIC v2</code>\n" +
+		smallcaps("language") + " : <code>Go</code>\n" +
+		smallcaps("telegram") + " : <code>gogram v1.7.10</code>\n" +
+		smallcaps("calls") + " : <code>ntgcalls v2.2.5</code>\n" +
+		smallcaps("player") + " : <code>ffmpeg + yt-dlp</code>\n" +
+		smallcaps("runtime") + " : <code>" + runtime.Version() + "</code>\n\n" +
+		smallcaps("add me in your group and start playing.")
+	return wrapBQ(body)
+}
+
+func helpListCaption(uid int64, name string) string {
+	mention := fmt.Sprintf("<a href='tg://user?id=%d'>%s</a>", uid, richEsc(name))
+	body := smallcaps("help menu") + "\n\n" +
+		smallcaps("hey") + " " + mention + "\n" +
+		smallcaps("tap any command button below to see how to use it.")
+	return wrapBQ(body)
 }
 
 func handleStart(m *telegram.NewMessage) error {
@@ -164,10 +173,13 @@ func handleStart(m *telegram.NewMessage) error {
 	if m.Chat != nil {
 		chatTitle = m.Chat.Title
 	}
-	caption := richImg(photo) +
-		fmt.Sprintf("hey <a href='tg://user?id=%d'>%s</a>\n\nthis is <b>%s</b>\nthanks for adding me in %s.", uid, richEsc(name), richEsc(BotName), richEsc(chatTitle))
+	caption := richImg(photo) + wrapBQ(
+		smallcaps("hey")+" "+fmt.Sprintf("<a href='tg://user?id=%d'>%s</a>", uid, richEsc(name))+"\n\n"+
+			smallcaps("this is")+" <b>"+richEsc(BotName)+"</b>\n"+
+			smallcaps("thanks for adding me in")+" "+richEsc(chatTitle)+".",
+	)
 	_, _ = sendHTML(Bot, chatID, caption, mixedKeyboard([][][2]string{
-		{{"help", "show_help"}, {"about", "about_menu"}},
+		{{smallcaps("help"), "show_help"}, {smallcaps("about"), "about_menu"}},
 	}))
 	addBroadcastChat(chatID, "group")
 	return nil
@@ -181,33 +193,32 @@ func handleHelp(m *telegram.NewMessage) error {
 	uid := userIDOf(m)
 	name := userNameOf(m)
 	photo := StartPhotos[rand.Intn(len(StartPhotos))]
-	caption := richHeading("help menu", 3) + richImg(photo) +
-		richNote(fmt.Sprintf("hey <a href=\"tg://user?id=%d\">%s</a>, tap a category.", uid, richEsc(name)))
+	caption := richImg(photo) + helpListCaption(uid, name)
 	_, _ = sendHTML(Bot, m.ChatID(), caption, helpKB())
 	return nil
 }
 
 func helpKB() telegram.ReplyMarkup {
 	return mixedKeyboard([][][2]string{
-		{{"admin", "help_admin"}, {"autoplay", "help_autoplay"}, {"gcast", "help_gcast"}},
-		{{"bl-chat", "help_blchat"}, {"bl-users", "help_blusers"}, {"ping", "help_ping"}},
-		{{"play", "help_play"}, {"speed", "help_speed"}, {"info", "help_info"}},
-		{{"close", "close_help"}},
+		{{smallcaps("admin"), "help_admin"}, {smallcaps("autoplay"), "help_autoplay"}, {smallcaps("gcast"), "help_gcast"}},
+		{{smallcaps("bl-chat"), "help_blchat"}, {smallcaps("bl-users"), "help_blusers"}, {smallcaps("ping"), "help_ping"}},
+		{{smallcaps("play"), "help_play"}, {smallcaps("speed"), "help_speed"}, {smallcaps("info"), "help_info"}},
+		{{smallcaps("close"), "close_help"}},
 	})
 }
 
 func helpHomeKB() telegram.ReplyMarkup {
 	return mixedKeyboard([][][2]string{
-		{{"admin", "help_admin"}, {"autoplay", "help_autoplay"}, {"gcast", "help_gcast"}},
-		{{"bl-chat", "help_blchat"}, {"bl-users", "help_blusers"}, {"ping", "help_ping"}},
-		{{"play", "help_play"}, {"speed", "help_speed"}, {"info", "help_info"}},
-		{{"home", "go_back"}},
+		{{smallcaps("admin"), "help_admin"}, {smallcaps("autoplay"), "help_autoplay"}, {smallcaps("gcast"), "help_gcast"}},
+		{{smallcaps("bl-chat"), "help_blchat"}, {smallcaps("bl-users"), "help_blusers"}, {smallcaps("ping"), "help_ping"}},
+		{{smallcaps("play"), "help_play"}, {smallcaps("speed"), "help_speed"}, {smallcaps("info"), "help_info"}},
+		{{smallcaps("back"), "go_back"}},
 	})
 }
 
 func backKB() telegram.ReplyMarkup {
 	return mixedKeyboard([][][2]string{
-		{{"back", "show_help"}},
-		{{"close", "close_help"}},
+		{{smallcaps("back"), "show_help"}},
+		{{smallcaps("close"), "close_help"}},
 	})
 }

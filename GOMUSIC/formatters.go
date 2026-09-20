@@ -8,6 +8,34 @@ import (
 	"time"
 )
 
+var smallMap = map[rune]rune{
+	'a': 'ᴀ', 'b': 'ʙ', 'c': 'ᴄ', 'd': 'ᴅ', 'e': 'ᴇ',
+	'f': 'ꜰ', 'g': 'ɢ', 'h': 'ʜ', 'i': 'ɪ', 'j': 'ᴊ',
+	'k': 'ᴋ', 'l': 'ʟ', 'm': 'ᴍ', 'n': 'ɴ', 'o': 'ᴏ',
+	'p': 'ᴘ', 'q': 'ǫ', 'r': 'ʀ', 's': 's', 't': 'ᴛ',
+	'u': 'ᴜ', 'v': 'ᴠ', 'w': 'ᴡ', 'x': 'x', 'y': 'ʏ', 'z': 'z',
+}
+
+func smallcaps(s string) string {
+	var b strings.Builder
+	b.Grow(len(s) * 2)
+	for _, r := range s {
+		if r >= 'A' && r <= 'Z' {
+			r = r - 'A' + 'a'
+		}
+		if m, ok := smallMap[r]; ok {
+			b.WriteRune(m)
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func wrapBQ(s string) string {
+	return "<blockquote expandable>" + strings.TrimSpace(s) + "</blockquote>"
+}
+
 func fmtTime(seconds float64) string {
 	s := int(seconds)
 	m := s / 60
