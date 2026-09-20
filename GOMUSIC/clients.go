@@ -58,6 +58,7 @@ func initClients() error {
 		AppID:         int32(APIID),
 		AppHash:       APIHash,
 		MemorySession: true,
+		ParseMode:     "HTML",
 	})
 	if err != nil {
 		return err
@@ -79,6 +80,7 @@ func initClients() error {
 		AppHash:       APIHash,
 		StringSession: encoded,
 		MemorySession: true,
+		ParseMode:     "HTML",
 	})
 	if err != nil {
 		return err
