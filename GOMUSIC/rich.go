@@ -140,19 +140,36 @@ func htmlToPlain(s string) string {
 	return strings.TrimSpace(html.UnescapeString(s))
 }
 
+func isNotModified(err error) bool {
+	if err == nil {
+		return false
+	}
+	low := strings.ToLower(err.Error())
+	return strings.Contains(low, "not modified") || strings.Contains(low, "message_not_modified")
+}
+
+func htmlSendOpts(markup telegram.ReplyMarkup) *telegram.SendOptions {
+	return &telegram.SendOptions{ParseMode: "HTML", ReplyMarkup: markup}
+}
+
+func htmlMediaOpts(caption string, markup telegram.ReplyMarkup) *telegram.MediaOptions {
+	return &telegram.MediaOptions{
+		Caption:     caption,
+		ParseMode:   "HTML",
+		ReplyMarkup: markup,
+	}
+}
+
 func sendHTML(client *telegram.Client, chat any, content string, markup telegram.ReplyMarkup) (*telegram.NewMessage, error) {
 	photo, raw := extractPhoto(content)
 	text := telegramHTML(raw)
 	if photo != "" {
-		msg, err := client.SendMedia(chat, photo, &telegram.MediaOptions{
-			Caption:     text,
-			ReplyMarkup: markup,
-		})
+		msg, err := client.SendMedia(chat, photo, htmlMediaOpts(text, markup))
 		if err == nil {
 			return msg, nil
 		}
 	}
-	msg, err := client.SendMessage(chat, text, &telegram.SendOptions{ParseMode: "HTML", ReplyMarkup: markup})
+	msg, err := client.SendMessage(chat, text, htmlSendOpts(markup))
 	if err != nil {
 		return client.SendMessage(chat, htmlToPlain(text), &telegram.SendOptions{ReplyMarkup: markup})
 	}
@@ -165,9 +182,16 @@ func editHTML(msg *telegram.NewMessage, content string, markup telegram.ReplyMar
 	}
 	_, raw := extractPhoto(content)
 	text := telegramHTML(raw)
-	_, err := msg.Edit(text, &telegram.SendOptions{ParseMode: "HTML", ReplyMarkup: markup})
-	if err != nil {
-		_, err = msg.Edit(htmlToPlain(text), &telegram.SendOptions{ReplyMarkup: markup})
+	opts := htmlSendOpts(markup)
+	_, err := msg.Edit(text, opts)
+	if err == nil || isNotModified(err) {
+		return nil
+	}
+	// Media captions sometimes reject the first edit path; retry HTML only.
+	// Never fall back to plain text — that strips <blockquote>.
+	_, err = msg.Client.EditMessage(msg.ChannelID(), msg.ID, text, opts)
+	if err == nil || isNotModified(err) {
+		return nil
 	}
 	return err
 }
