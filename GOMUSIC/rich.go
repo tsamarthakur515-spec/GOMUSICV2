@@ -1,15 +1,9 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
 	"html"
-	"io"
-	"net/http"
 	"regexp"
 	"strings"
-	"time"
 	"unicode/utf16"
 
 	"github.com/amarnathcjd/gogram/telegram"
@@ -18,7 +12,6 @@ import (
 var (
 	reImgSrc = regexp.MustCompile(`(?is)<img[^>]*src=["']([^"']+)["'][^>]*>`)
 	reTgBtn  = regexp.MustCompile(`(?is)<tg-button[^>]*>.*?</tg-button>`)
-	botHTTP  = &http.Client{Timeout: 20 * time.Second}
 )
 
 func richEsc(v string) string { return html.EscapeString(v) }
@@ -180,125 +173,11 @@ func captionEntities(htmlText string) ([]telegram.MessageEntity, string) {
 	return ents, plain
 }
 
-func replyMarkupToAPI(markup telegram.ReplyMarkup) map[string]any {
-	im, ok := markup.(*telegram.ReplyInlineMarkup)
-	if !ok || im == nil {
-		return nil
-	}
-	var rows [][]map[string]string
-	for _, row := range im.Rows {
-		if row == nil {
-			continue
-		}
-		var btns []map[string]string
-		for _, b := range row.Buttons {
-			if b == nil {
-				continue
-			}
-			item := map[string]string{"text": b.Text}
-			switch t := b.Type.(type) {
-			case *telegram.InlineButtonTypeCallback:
-				item["callback_data"] = string(t.Data)
-			case *telegram.InlineButtonTypeURL:
-				item["url"] = t.URL
-			default:
-				continue
-			}
-			btns = append(btns, item)
-		}
-		if len(btns) > 0 {
-			rows = append(rows, btns)
-		}
-	}
-	if len(rows) == 0 {
-		return nil
-	}
-	return map[string]any{"inline_keyboard": rows}
-}
-
-func botAPIPost(method string, body map[string]any) error {
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-	resp, err := botHTTP.Post("https://api.telegram.org/bot"+BotToken+"/"+method, "application/json", bytes.NewReader(raw))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	out, _ := io.ReadAll(resp.Body)
-	var parsed struct {
-		OK          bool   `json:"ok"`
-		Description string `json:"description"`
-	}
-	_ = json.Unmarshal(out, &parsed)
-	if parsed.OK {
-		return nil
-	}
-	desc := parsed.Description
-	if desc == "" {
-		desc = string(out)
-	}
-	return fmt.Errorf("%s", desc)
-}
-
-func editPhotoCaption(chatID int64, msgID int32, msg *telegram.NewMessage, htmlText string, markup telegram.ReplyMarkup) error {
+func editPhotoCaption(chatID int64, msgID int32, _ *telegram.NewMessage, htmlText string, markup telegram.ReplyMarkup) error {
 	htmlText = telegramHTML(htmlText)
-	ents, plain := captionEntities(htmlText)
-
-	opts := &telegram.SendOptions{
+	ents, _ := captionEntities(htmlText)
+	_, err := Bot.EditMessage(chatID, msgID, htmlText, &telegram.SendOptions{
 		ParseMode:   "HTML",
-		Entities:    ents,
-		ReplyMarkup: markup,
-	}
-	if msg != nil {
-		if p := msg.Photo(); p != nil {
-			opts.Media = p
-		} else if media := msg.Media(); media != nil {
-			opts.Media = media
-		}
-	}
-	// Pass HTML string so gogram parseEntities also builds MessageEntityBlockquote.
-	_, err := Bot.EditMessage(chatID, msgID, htmlText, opts)
-	if err == nil || isNotModified(err) {
-		return nil
-	}
-
-	// Same photo + HTML caption, like a fresh sendPhoto.
-	if msg != nil {
-		if fid := msg.FileID(); fid != "" {
-			body := map[string]any{
-				"chat_id":    chatID,
-				"message_id": msgID,
-				"media": map[string]any{
-					"type":       "photo",
-					"media":      fid,
-					"caption":    htmlText,
-					"parse_mode": "HTML",
-				},
-			}
-			if kb := replyMarkupToAPI(markup); kb != nil {
-				body["reply_markup"] = kb
-			}
-			if e := botAPIPost("editMessageMedia", body); e == nil || isNotModified(e) {
-				return nil
-			}
-		}
-	}
-
-	body := map[string]any{
-		"chat_id":                  chatID,
-		"message_id":               msgID,
-		"caption":                  htmlText,
-		"parse_mode":               "HTML",
-	}
-	if kb := replyMarkupToAPI(markup); kb != nil {
-		body["reply_markup"] = kb
-	}
-	if e := botAPIPost("editMessageCaption", body); e == nil || isNotModified(e) {
-		return nil
-	}
-	_, err = Bot.EditMessage(chatID, msgID, plain, &telegram.SendOptions{
 		Entities:    ents,
 		ReplyMarkup: markup,
 	})
