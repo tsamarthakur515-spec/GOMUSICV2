@@ -35,9 +35,6 @@ func menuPhotoURL(chatID int64, msgID int32) string {
 			return s
 		}
 	}
-	if len(StartPhotos) > 0 {
-		return StartPhotos[0]
-	}
 	return ""
 }
 
@@ -298,8 +295,22 @@ func editMenu(cb *telegram.CallbackQuery, content string, markup telegram.ReplyM
 
 	_, raw := extractPhoto(content)
 
-	// Edit the existing message instead of deleting it and sending a new one.
-	err = editPhotoCaption(chatID, msg.ID, msg, raw, markup)
+	// Re-submit the existing photo together with the formatted caption. This
+	// mirrors Telegram's EditMessageMedia path and preserves blockquote
+	// entities in media captions, which caption-only edits can drop.
+	if photoURL := menuPhotoURL(chatID, msg.ID); photoURL != "" {
+		ents, plain := captionEntities(raw)
+		_, err = Bot.EditMessage(chatID, msg.ID, plain, &telegram.SendOptions{
+			ParseMode:   "",
+			Entities:    ents,
+			Media:       &telegram.InputMediaPhotoExternal{URL: photoURL},
+			ReplyMarkup: markup,
+		})
+	} else {
+		// Text messages and menus created before photo tracking was enabled
+		// still use the safe caption-only path.
+		err = editPhotoCaption(chatID, msg.ID, msg, raw, markup)
+	}
 
 	if isNotModified(err) {
 		return nil
