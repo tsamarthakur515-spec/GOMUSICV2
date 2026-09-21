@@ -33,7 +33,10 @@ func smallcaps(s string) string {
 }
 
 func wrapBQ(s string) string {
-	return "<blockquote expandable>" + strings.TrimSpace(s) + "</blockquote>"
+	// Keep callback-menu quotes expanded. Telegram clients can lose the
+	// visual quote marker when an expandable blockquote is applied to an
+	// edited media caption.
+	return "<blockquote>" + strings.TrimSpace(s) + "</blockquote>"
 }
 
 func fmtTime(seconds float64) string {

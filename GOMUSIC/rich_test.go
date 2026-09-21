@@ -29,7 +29,7 @@ func TestCaptionEntitiesPreserveBlockquote(t *testing.T) {
 			lastOffset = offset
 			if blockquote, ok := entity.(*telegram.MessageEntityBlockquote); ok {
 				foundBlockquote = true
-				if blockquote.Offset != 0 || blockquote.Length <= 0 {
+				if blockquote.Collapsed || blockquote.Offset != 0 || blockquote.Length <= 0 {
 					t.Fatalf("caption %d has invalid blockquote bounds: %+v", i, blockquote)
 				}
 			}
