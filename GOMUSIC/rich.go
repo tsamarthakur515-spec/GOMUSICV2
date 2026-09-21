@@ -314,26 +314,28 @@ func editMenu(cb *telegram.CallbackQuery, content string, markup telegram.ReplyM
 	if cb == nil {
 		return nil
 	}
-	msg, _ := cb.GetMessage()
-	chatID := cb.ChatID
-	var msgID int32
-	if msg != nil {
-		msgID = msg.ID
-		if chatID == 0 {
-			chatID = msgBotChatID(msg)
-		}
-	}
-	content = withMenuPhoto(content, chatID, msgID)
-	_, err := sendHTML(Bot, chatID, content, markup)
-	if err != nil {
+
+	msg, err := cb.GetMessage()
+	if err != nil || msg == nil {
 		return err
 	}
-	if msg != nil {
-		_, _ = msg.Delete()
-	}
-	return nil
-}
 
+	chatID := cb.ChatID
+	if chatID == 0 {
+		chatID = msgBotChatID(msg)
+	}
+
+	_, raw := extractPhoto(content)
+
+	// Edit the existing message instead of deleting it and sending a new one.
+	err = editPhotoCaption(chatID, msg.ID, msg, raw, markup)
+
+	if isNotModified(err) {
+		return nil
+	}
+
+	return err
+}
 func mixedKeyboard(rows [][][2]string) telegram.ReplyMarkup {
 	kb := telegram.NewKeyboard()
 	for _, row := range rows {
