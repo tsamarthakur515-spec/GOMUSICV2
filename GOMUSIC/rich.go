@@ -21,9 +21,13 @@ var (
 	botHTTP  = &http.Client{Timeout: 20 * time.Second}
 )
 
-func richEsc(v string) string {
-	return html.EscapeString(v)
+type htmlOpen struct {
+	kind string
+	off  int
+	url  string
 }
+
+func richEsc(v string) string { return html.EscapeString(v) }
 
 func sanitizeDisplayName(name string) string {
 	name = strings.TrimSpace(name)
@@ -82,9 +86,7 @@ func richDetails(summary, body string, open bool) string {
 	return "<b>" + summary + "</b>\n" + strings.TrimSpace(body) + "\n"
 }
 
-func supportUpdatesPills() string {
-	return ""
-}
+func supportUpdatesPills() string { return "" }
 
 func extractPhoto(content string) (photo string, text string) {
 	if m := reImgSrc.FindStringSubmatch(content); len(m) == 2 {
@@ -129,134 +131,7 @@ func telegramHTML(s string) string {
 	return strings.TrimSpace(s)
 }
 
-func htmlToPlain(s string) string {
-	plain, _ := htmlToEntities(s)
-	return plain
-}
-
-func utf16Count(s string) int {
-	return len(utf16.Encode([]rune(s)))
-}
-
-func htmlToEntities(raw string) (string, []map[string]any) {
-	s := telegramHTML(raw)
-	var plain strings.Builder
-	type openTag struct {
-		kind string
-		off  int
-		url  string
-	}
-	var stack []openTag
-	var ents []map[string]any
-	i := 0
-	for i < len(s) {
-		if s[i] != '<' {
-			r, size := decodeRune(s[i:])
-			plain.WriteRune(r)
-			i += size
-			continue
-		}
-		end := strings.IndexByte(s[i:], '>')
-		if end < 0 {
-			plain.WriteString(s[i:])
-			break
-		}
-		tag := strings.TrimSpace(s[i+1 : i+end])
-		i = i + end + 1
-		low := strings.ToLower(tag)
-		closing := strings.HasPrefix(low, "/")
-		if closing {
-			low = strings.TrimSpace(low[1:])
-		}
-		name := strings.Fields(low)
-		if len(name) == 0 {
-			continue
-		}
-		kind := name[0]
-		switch kind {
-		case "blockquote":
-			if closing {
-				for n := len(stack) - 1; n >= 0; n-- {
-					if stack[n].kind == "blockquote" || stack[n].kind == "expandable_blockquote" {
-						e := stack[n]
-						stack = append(stack[:n], stack[n+1:]...)
-						ents = append(ents, map[string]any{"type": e.kind, "offset": e.off, "length": utf16Count(plain.String()) - e.off})
-						break
-					}
-				}
-				continue
-			}
-			k := "blockquote"
-			if strings.Contains(low, "expandable") {
-				k = "expandable_blockquote"
-			}
-			stack = append(stack, openTag{kind: k, off: utf16Count(plain.String())})
-		case "a":
-			if closing {
-				for n := len(stack) - 1; n >= 0; n-- {
-					if stack[n].kind == "text_link" {
-						e := stack[n]
-						stack = append(stack[:n], stack[n+1:]...)
-						item := map[string]any{"type": "text_link", "offset": e.off, "length": utf16Count(plain.String()) - e.off}
-						if e.url != "" {
-							item["url"] = e.url
-						}
-						ents = append(ents, item)
-						break
-					}
-				}
-				continue
-			}
-			url := hrefOf(tag)
-			stack = append(stack, openTag{kind: "text_link", off: utf16Count(plain.String()), url: url})
-		case "b", "strong":
-			if closing {
-				closeSimple(&stack, &ents, "bold", utf16Count(plain.String()))
-			} else {
-				stack = append(stack, openTag{kind: "bold", off: utf16Count(plain.String())})
-			}
-		case "i", "em":
-			if closing {
-				closeSimple(&stack, &ents, "italic", utf16Count(plain.String()))
-			} else {
-				stack = append(stack, openTag{kind: "italic", off: utf16Count(plain.String())})
-			}
-		case "code":
-			if closing {
-				closeSimple(&stack, &ents, "code", utf16Count(plain.String()))
-			} else {
-				stack = append(stack, openTag{kind: "code", off: utf16Count(plain.String())})
-			}
-		case "u":
-			if closing {
-				closeSimple(&stack, &ents, "underline", utf16Count(plain.String()))
-			} else {
-				stack = append(stack, openTag{kind: "underline", off: utf16Count(plain.String())})
-			}
-		}
-	}
-	for n := len(stack) - 1; n >= 0; n-- {
-		e := stack[n]
-		item := map[string]any{"type": e.kind, "offset": e.off, "length": utf16Count(plain.String()) - e.off}
-		if e.url != "" {
-			item["url"] = e.url
-		}
-		ents = append(ents, item)
-	}
-	out := html.UnescapeString(plain.String())
-	if !hasEntityType(ents, "expandable_blockquote") && !hasEntityType(ents, "blockquote") && strings.TrimSpace(out) != "" {
-		ents = append([]map[string]any{{"type": "expandable_blockquote", "offset": 0, "length": utf16Count(out)}}, ents...)
-	}
-	return out, ents
-}
-
-func decodeRune(s string) (rune, int) {
-	if s == "" {
-		return 0, 0
-	}
-	r := []rune(s)
-	return r[0], len(string(r[0]))
-}
+func utf16Count(s string) int { return len(utf16.Encode([]rune(s))) }
 
 func hrefOf(tag string) string {
 	low := strings.ToLower(tag)
@@ -265,8 +140,7 @@ func hrefOf(tag string) string {
 		if idx < 0 {
 			continue
 		}
-		start := idx + len(key)
-		rest := tag[start:]
+		rest := tag[idx+len(key):]
 		switch {
 		case strings.HasPrefix(key, `href="`):
 			if n := strings.Index(rest, `"`); n >= 0 {
@@ -286,27 +160,26 @@ func hrefOf(tag string) string {
 	return ""
 }
 
-func closeSimple(stack *[]openTagLite, ents *[]map[string]any, kind string, end int) {
-}
-
-type openTagLite struct {
-	kind string
-	off  int
-	url  string
-}
-
-func closeKind(stack *[]struct {
-	kind string
-	off  int
-	url  string
-}, ents *[]map[string]any, kind string, end int) {
+func popKind(stack *[]htmlOpen, ents *[]map[string]any, kinds []string, end int) {
 	s := *stack
 	for n := len(s) - 1; n >= 0; n-- {
-		if s[n].kind == kind {
-			*ents = append(*ents, map[string]any{"type": kind, "offset": s[n].off, "length": end - s[n].off})
-			*stack = append(s[:n], s[n+1:]...)
-			return
+		match := false
+		for _, k := range kinds {
+			if s[n].kind == k {
+				match = true
+				break
+			}
 		}
+		if !match {
+			continue
+		}
+		item := map[string]any{"type": s[n].kind, "offset": s[n].off, "length": end - s[n].off}
+		if s[n].url != "" {
+			item["url"] = s[n].url
+		}
+		*ents = append(*ents, item)
+		*stack = append(s[:n], s[n+1:]...)
+		return
 	}
 }
 
@@ -317,6 +190,101 @@ func hasEntityType(ents []map[string]any, typ string) bool {
 		}
 	}
 	return false
+}
+
+func htmlToEntities(raw string) (string, []map[string]any) {
+	s := telegramHTML(raw)
+	var plain strings.Builder
+	var stack []htmlOpen
+	var ents []map[string]any
+	i := 0
+	for i < len(s) {
+		if s[i] != '<' {
+			rs := []rune(s[i:])
+			plain.WriteRune(rs[0])
+			i += len(string(rs[0]))
+			continue
+		}
+		end := strings.IndexByte(s[i:], '>')
+		if end < 0 {
+			plain.WriteString(s[i:])
+			break
+		}
+		tag := strings.TrimSpace(s[i+1 : i+end])
+		i = i + end + 1
+		low := strings.ToLower(tag)
+		closing := strings.HasPrefix(low, "/")
+		if closing {
+			low = strings.TrimSpace(low[1:])
+		}
+		fields := strings.Fields(low)
+		if len(fields) == 0 {
+			continue
+		}
+		kind := fields[0]
+		cur := utf16Count(plain.String())
+		switch kind {
+		case "blockquote":
+			if closing {
+				popKind(&stack, &ents, []string{"blockquote", "expandable_blockquote"}, cur)
+				continue
+			}
+			k := "blockquote"
+			if strings.Contains(low, "expandable") {
+				k = "expandable_blockquote"
+			}
+			stack = append(stack, htmlOpen{kind: k, off: cur})
+		case "a":
+			if closing {
+				popKind(&stack, &ents, []string{"text_link"}, cur)
+				continue
+			}
+			stack = append(stack, htmlOpen{kind: "text_link", off: cur, url: hrefOf(tag)})
+		case "b", "strong":
+			if closing {
+				popKind(&stack, &ents, []string{"bold"}, cur)
+			} else {
+				stack = append(stack, htmlOpen{kind: "bold", off: cur})
+			}
+		case "i", "em":
+			if closing {
+				popKind(&stack, &ents, []string{"italic"}, cur)
+			} else {
+				stack = append(stack, htmlOpen{kind: "italic", off: cur})
+			}
+		case "code":
+			if closing {
+				popKind(&stack, &ents, []string{"code"}, cur)
+			} else {
+				stack = append(stack, htmlOpen{kind: "code", off: cur})
+			}
+		case "u":
+			if closing {
+				popKind(&stack, &ents, []string{"underline"}, cur)
+			} else {
+				stack = append(stack, htmlOpen{kind: "underline", off: cur})
+			}
+		}
+	}
+	endOff := utf16Count(plain.String())
+	for n := len(stack) - 1; n >= 0; n-- {
+		e := stack[n]
+		item := map[string]any{"type": e.kind, "offset": e.off, "length": endOff - e.off}
+		if e.url != "" {
+			item["url"] = e.url
+		}
+		ents = append(ents, item)
+	}
+	out := html.UnescapeString(plain.String())
+	if strings.TrimSpace(out) != "" && !hasEntityType(ents, "expandable_blockquote") && !hasEntityType(ents, "blockquote") {
+		ents = append([]map[string]any{{"type": "expandable_blockquote", "offset": 0, "length": utf16Count(out)}}, ents...)
+	}
+	return out, ents
+}
+
+func htmlToPlain(s string) string {
+	plain, _ := htmlToEntities(s)
+	return plain
 }
 
 func isNotModified(err error) bool {
@@ -332,11 +300,7 @@ func htmlSendOpts(markup telegram.ReplyMarkup) *telegram.SendOptions {
 }
 
 func htmlMediaOpts(caption string, markup telegram.ReplyMarkup) *telegram.MediaOptions {
-	return &telegram.MediaOptions{
-		Caption:     caption,
-		ParseMode:   "HTML",
-		ReplyMarkup: markup,
-	}
+	return &telegram.MediaOptions{Caption: caption, ParseMode: "HTML", ReplyMarkup: markup}
 }
 
 func msgBotChatID(msg *telegram.NewMessage) int64 {
@@ -459,16 +423,11 @@ func editHTML(msg *telegram.NewMessage, content string, markup telegram.ReplyMar
 	_, raw := extractPhoto(content)
 	text := telegramHTML(raw)
 	chatID := msgBotChatID(msg)
-	// Always try caption first: start/help/about/player are photo posts.
 	err := botAPIEdit(chatID, msg.ID, text, markup, true)
 	if err == nil || isNotModified(err) {
 		return nil
 	}
-	err = botAPIEdit(chatID, msg.ID, text, markup, false)
-	if err == nil || isNotModified(err) {
-		return nil
-	}
-	return err
+	return botAPIEdit(chatID, msg.ID, text, markup, false)
 }
 
 func editMenu(cb *telegram.CallbackQuery, content string, markup telegram.ReplyMarkup) error {
