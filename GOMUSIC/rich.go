@@ -14,6 +14,11 @@ import (
 var (
 	reImgSrc = regexp.MustCompile(`(?is)<img[^>]*src=["']([^"']+)["'][^>]*>`)
 	reTgBtn  = regexp.MustCompile(`(?is)<tg-button[^>]*>.*?</tg-button>`)
+	// Blockquotes are added as an explicit Telegram entity below. Keeping the
+	// HTML tag in the input makes FormatMessage behave differently for media
+	// captions and message edits, which is why the quote disappeared after a
+	// menu button was pressed.
+	reBlockquote = regexp.MustCompile(`(?is)</?blockquote(?:\s[^>]*)?>`)
 	menuPic  sync.Map
 )
 
@@ -196,9 +201,15 @@ func hasBlockquote(ents []telegram.MessageEntity) bool {
 }
 
 func captionEntities(htmlText string) ([]telegram.MessageEntity, string) {
+	// Do not rely on FormatMessage to parse <blockquote>. Telegram treats
+	// blockquote parsing inconsistently when the same caption is edited. Strip
+	// the markup, parse the remaining HTML, then attach one explicit entity
+	// covering the complete caption. This keeps send, help/about, and Back
+	// button edits identical.
 	text := telegramHTML(htmlText)
+	text = reBlockquote.ReplaceAllString(text, "")
 	ents, plain := Bot.FormatMessage(text, "HTML")
-	if !hasBlockquote(ents) && strings.TrimSpace(plain) != "" {
+	if strings.TrimSpace(plain) != "" {
 		ents = append([]telegram.MessageEntity{&telegram.MessageEntityBlockquote{
 			Collapsed: true,
 			Offset:    0,
