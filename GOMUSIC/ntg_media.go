@@ -11,22 +11,37 @@ import (
 	"github.com/nikhil390u8o/GOMUSICV2/ntgcalls"
 )
 
+func isHTTP(src string) bool {
+	s := strings.ToLower(strings.TrimSpace(src))
+	return strings.HasPrefix(s, "http://") || strings.HasPrefix(s, "https://")
+}
+
+func ffmpegPreFlags(src string) string {
+	if !isHTTP(src) {
+		return "-nostdin -hide_banner -fflags +genpts+discardcorrupt -err_detect ignore_err "
+	}
+	return "-nostdin -hide_banner -reconnect 1 -reconnect_streamed 1 -reconnect_on_network_error 1 -reconnect_delay_max 8 -fflags +genpts+discardcorrupt -err_detect ignore_err "
+}
+
 func videoSize(path string) (int, int) {
+	if isHTTP(path) {
+		return 854, 480
+	}
 	out, err := exec.Command("ffprobe", "-v", "error", "-select_streams", "v:0",
 		"-show_entries", "stream=width,height", "-of", "csv=s=x:p=0", path).Output()
 	if err != nil {
-		return 1280, 720
+		return 854, 480
 	}
 	parts := strings.Split(strings.TrimSpace(string(out)), "x")
 	if len(parts) != 2 {
-		return 1280, 720
+		return 854, 480
 	}
 	w, _ := strconv.Atoi(parts[0])
 	h, _ := strconv.Atoi(parts[1])
 	if w <= 0 || h <= 0 {
-		return 1280, 720
+		return 854, 480
 	}
-	maxW, maxH := 1280, 720
+	maxW, maxH := 854, 480
 	ratio := float64(w) / float64(h)
 	nw := w
 	if nw > maxW {
@@ -53,15 +68,25 @@ func videoSize(path string) (int, int) {
 }
 
 func buildMedia(path string, video bool, seekSec int) ntgcalls.MediaDescription {
-	q := fmt.Sprintf("%q", path)
+	return buildMediaAV(path, path, video, seekSec)
+}
+
+func buildMediaAV(audioSrc, videoSrc string, video bool, seekSec int) ntgcalls.MediaDescription {
+	if audioSrc == "" {
+		audioSrc = videoSrc
+	}
+	if videoSrc == "" {
+		videoSrc = audioSrc
+	}
+	aq := fmt.Sprintf("%q", audioSrc)
+	vq := fmt.Sprintf("%q", videoSrc)
 	seek := ""
 	if seekSec > 0 {
 		seek = fmt.Sprintf("-ss %d ", seekSec)
 	}
-	// nostdin + apad keeps the last second from being cut when the PCM pipe closes.
 	audioCmd := fmt.Sprintf(
-		"ffmpeg -nostdin -hide_banner -fflags +genpts+discardcorrupt -err_detect ignore_err %s-i %s -vn -af apad=pad_dur=1.2 -f s16le -ac 2 -ar 48000 -v quiet pipe:1",
-		seek, q,
+		"ffmpeg %s%s-i %s -vn -af apad=pad_dur=1.2 -f s16le -ac 2 -ar 48000 -v quiet pipe:1",
+		ffmpegPreFlags(audioSrc), seek, aq,
 	)
 	audio := &ntgcalls.AudioDescription{
 		MediaSource:  ntgcalls.MediaSourceShell,
@@ -72,15 +97,15 @@ func buildMedia(path string, video bool, seekSec int) ntgcalls.MediaDescription 
 	if !video {
 		return ntgcalls.MediaDescription{Microphone: audio}
 	}
-	w, h := videoSize(path)
+	w, h := videoSize(videoSrc)
 	cam := &ntgcalls.VideoDescription{
 		MediaSource: ntgcalls.MediaSourceShell,
 		Width:       int16(w),
 		Height:      int16(h),
 		Fps:         24,
 		Input: fmt.Sprintf(
-			"ffmpeg -nostdin -hide_banner -fflags +genpts+discardcorrupt %s-i %s -an -f rawvideo -r 24 -pix_fmt yuv420p -vf scale=%d:%d -v quiet pipe:1",
-			seek, q, w, h,
+			"ffmpeg %s%s-i %s -an -f rawvideo -r 24 -pix_fmt yuv420p -vf scale=%d:%d -v quiet pipe:1",
+			ffmpegPreFlags(videoSrc), seek, vq, w, h,
 		),
 	}
 	return ntgcalls.MediaDescription{Microphone: audio, Camera: cam}
@@ -116,19 +141,19 @@ func startNTGStreamPrebuilt(chatID int64, media ntgcalls.MediaDescription, video
 		}
 		if Calls.Calls()[chatID] != nil {
 			_ = Calls.Stop(chatID)
-			time.Sleep(400 * time.Millisecond)
+			time.Sleep(300 * time.Millisecond)
 		}
 		local, err := Calls.CreateCall(chatID)
 		if err != nil {
 			_ = Calls.Stop(chatID)
 			last = err
-			time.Sleep(time.Second)
+			time.Sleep(800 * time.Millisecond)
 			continue
 		}
 		if err := Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media); err != nil {
 			_ = Calls.Stop(chatID)
 			last = err
-			time.Sleep(time.Second)
+			time.Sleep(800 * time.Millisecond)
 			continue
 		}
 		me, err := Assistant.GetMe()
@@ -167,7 +192,7 @@ func startNTGStreamPrebuilt(chatID int64, media ntgcalls.MediaDescription, video
 		if err := Calls.Connect(chatID, remote, false); err != nil {
 			_ = Calls.Stop(chatID)
 			last = err
-			time.Sleep(time.Second)
+			time.Sleep(800 * time.Millisecond)
 			continue
 		}
 		activeCalls[chatID] = inputCall
@@ -179,18 +204,4 @@ func startNTGStreamPrebuilt(chatID int64, media ntgcalls.MediaDescription, video
 		last = fmt.Errorf("join call failed")
 	}
 	return last
-}
-
-func ytDuration(videoID string) float64 {
-	out, err := exec.Command(
-		"yt-dlp", "--no-warnings", "--print", "duration",
-		"https://www.youtube.com/watch?v="+videoID,
-	).Output()
-	if err != nil {
-		return 0
-	}
-	s := strings.TrimSpace(string(out))
-	var secs float64
-	fmt.Sscanf(s, "%f", &secs)
-	return secs
 }
