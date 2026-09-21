@@ -3,7 +3,9 @@ package main
 import (
 	"fmt"
 	"html"
+	"reflect"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"unicode/utf16"
@@ -19,7 +21,7 @@ var (
 	// captions and message edits, which is why the quote disappeared after a
 	// menu button was pressed.
 	reBlockquote = regexp.MustCompile(`(?is)</?blockquote(?:\s[^>]*)?>`)
-	menuPic  sync.Map
+	menuPic      sync.Map
 )
 
 func menuPicKey(chatID int64, msgID int32) string {
@@ -160,6 +162,21 @@ func telegramHTML(s string) string {
 
 func utf16Count(s string) int { return len(utf16.Encode([]rune(s))) }
 
+func entityBounds(entity telegram.MessageEntity) (offset, length int32) {
+	v := reflect.ValueOf(entity)
+	if v.Kind() == reflect.Ptr {
+		v = v.Elem()
+	}
+	if v.IsValid() && v.Kind() == reflect.Struct {
+		off := v.FieldByName("Offset")
+		lengthField := v.FieldByName("Length")
+		if off.IsValid() && lengthField.IsValid() {
+			return int32(off.Int()), int32(lengthField.Int())
+		}
+	}
+	return 0, 0
+}
+
 func htmlToPlain(s string) string {
 	_, plain := Bot.FormatMessage(telegramHTML(s), "HTML")
 	return plain
@@ -258,11 +275,23 @@ func captionEntities(htmlText string) ([]telegram.MessageEntity, string) {
 		searchFrom = idx + len(quotePlain)
 	}
 
+	// Telegram expects message entities in offset order. The blockquote is
+	// added after the HTML parser's entities above, so normalize the order
+	// before sending or editing the message/caption.
+	sort.SliceStable(ents, func(i, j int) bool {
+		offI, lenI := entityBounds(ents[i])
+		offJ, lenJ := entityBounds(ents[j])
+		if offI != offJ {
+			return offI < offJ
+		}
+		return lenI > lenJ
+	})
+
 	return ents, plain
 }
 
 func editPhotoCaption(chatID int64, msgID int32, msg *telegram.NewMessage, htmlText string, markup telegram.ReplyMarkup) error {
-    ents, plain := captionEntities(htmlText)
+	ents, plain := captionEntities(htmlText)
 	_, err := Bot.EditMessage(chatID, msgID, plain, &telegram.SendOptions{
 		ParseMode:   "",
 		Entities:    ents,

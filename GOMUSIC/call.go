@@ -3,14 +3,12 @@ package main
 import (
 	"errors"
 	"fmt"
-	"log"
 	"math/rand"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/amarnathcjd/gogram/telegram"
-	"github.com/nikhil390u8o/GOMUSICV2/ntgcalls"
 )
 
 var (
