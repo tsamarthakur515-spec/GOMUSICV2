@@ -33,19 +33,20 @@ func processPlayCommand(m *telegram.NewMessage, video bool) error {
 
 func processPlay(m *telegram.NewMessage, query string, video bool) error {
 	chatID := m.ChatID()
-	pm, _ := sendHTML(Bot, chatID, richHeading("processing...", 3), nil)
+	pm, _ := sendHTML(Bot, chatID, wrapBQ(smallcaps("processing...")), nil)
 	ok, banned := assistantIn(chatID)
 	if banned {
-		_ = editHTML(pm, richHeading("assistant banned", 3)+richNote("unban @"+assistantUsername), nil)
+		_ = editHTML(pm, wrapBQ(smallcaps("assistant banned")+"\n"+smallcaps("unban")+" @"+assistantUsername), nil)
 		return nil
 	}
 	if !ok {
-		_ = editHTML(pm, richHeading("assistant is joining...", 3), nil)
+		_ = editHTML(pm, wrapBQ(smallcaps("assistant is joining...")), nil)
 		if !tryJoinAssistant(chatID, pm) {
 			return nil
 		}
 	}
 	_ = promoteAssistant(chatID)
+	go func() { _ = ensureVC(chatID) }()
 	if strings.Contains(query, "youtu.be/") {
 		if parts := strings.Split(query, "youtu.be/"); len(parts) > 1 {
 			id := strings.Split(strings.Split(parts[1], "?")[0], "&")[0]
@@ -54,11 +55,11 @@ func processPlay(m *telegram.NewMessage, query string, video bool) error {
 	}
 	urlStr, title, durISO, thumb, playlist, err := searchSmart(query)
 	if err != nil {
-		_ = editHTML(pm, richHeading("search failed", 3)+richNote("<code>"+richEsc(err.Error())+"</code>"), nil)
+		_ = editHTML(pm, wrapBQ(smallcaps("search failed")+"\n<code>"+richEsc(err.Error())+"</code>"), nil)
 		return nil
 	}
 	if urlStr == "" && len(playlist) == 0 {
-		_ = editHTML(pm, richHeading("song not found", 3), nil)
+		_ = editHTML(pm, wrapBQ(smallcaps("song not found")), nil)
 		return nil
 	}
 	req := userNameOf(m)
@@ -80,7 +81,7 @@ func processPlay(m *telegram.NewMessage, query string, video bool) error {
 	if pos == 1 {
 		return playSong(chatID, pm, song)
 	}
-	_, _ = sendHTML(Bot, chatID, richHeading("added to queue", 3)+richNote(richEsc(title)), nil)
+	_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("added to queue")+"\n"+richEsc(title)), nil)
 	if pm != nil {
 		_, _ = pm.Delete()
 	}
@@ -171,9 +172,9 @@ func promoteAssistant(chatID int64) error {
 func tryJoinAssistant(chatID int64, pm *telegram.NewMessage) bool {
 	link, err := exportInviteLink(chatID)
 	if err != nil {
-		_ = editHTML(pm, richHeading("assistant join failed", 3)+
-			richNote("Give the bot Invite Users permission, or add <b>@"+assistantUsername+"</b> manually.")+
-			richNote("<code>"+richEsc(err.Error())+"</code>"), nil)
+		_ = editHTML(pm, wrapBQ(smallcaps("assistant join failed")+"\n"+
+			smallcaps("give invite users permission or add")+" @"+assistantUsername),
+			nil)
 		return false
 	}
 	hash := inviteHashFromLink(link)
@@ -186,19 +187,16 @@ func tryJoinAssistant(chatID int64, pm *telegram.NewMessage) bool {
 		}
 		if hash != "" {
 			if _, err2 := Assistant.MessagesImportChatInvite(hash); err2 == nil || strings.Contains(strings.ToLower(err2.Error()), "already") {
-				time.Sleep(time.Second)
 				_ = promoteAssistant(chatID)
 				return true
 			} else {
 				joinErr = err2
 			}
 		}
-		_ = editHTML(pm, richHeading("assistant join failed", 3)+
-			richNote("Telegram bots cannot add users with ChannelsInviteToChannel.")+richNote("Add <b>@"+assistantUsername+"</b> to the group once, give Manage Video Chats, then /play.")+
-			richNote("<code>"+richEsc(joinErr.Error())+"</code>"), nil)
+		_ = editHTML(pm, wrapBQ(smallcaps("assistant join failed")+"\n"+
+			smallcaps("add")+" @"+assistantUsername+" "+smallcaps("once then play")+"\n<code>"+richEsc(joinErr.Error())+"</code>"), nil)
 		return false
 	}
-	time.Sleep(time.Second)
 	_ = promoteAssistant(chatID)
 	return true
 }
@@ -208,7 +206,7 @@ func handlePause(m *telegram.NewMessage) error {
 		return nil
 	}
 	_, _ = Calls.Pause(m.ChatID())
-	_, _ = sendHTML(Bot, m.ChatID(), richHeading("stream paused", 3), nil)
+	_, _ = sendHTML(Bot, m.ChatID(), wrapBQ(smallcaps("stream paused")), nil)
 	return nil
 }
 
@@ -217,7 +215,7 @@ func handleResume(m *telegram.NewMessage) error {
 		return nil
 	}
 	_, _ = Calls.Resume(m.ChatID())
-	_, _ = sendHTML(Bot, m.ChatID(), richHeading("stream resumed", 3), nil)
+	_, _ = sendHTML(Bot, m.ChatID(), wrapBQ(smallcaps("stream resumed")), nil)
 	return nil
 }
 
@@ -226,18 +224,19 @@ func handleSkip(m *telegram.NewMessage) error {
 		return nil
 	}
 	chatID := m.ChatID()
+	bumpStream(chatID)
 	skipped := popCurrent(chatID)
 	_ = Calls.Stop(chatID)
-	time.Sleep(2 * time.Second)
+	time.Sleep(time.Second)
 	if skipped != nil {
 		deleteFile(skipped.FilePath)
 	}
 	nxt := peekCurrent(chatID)
 	if nxt != nil {
-		dm, _ := sendHTML(Bot, chatID, richHeading("next track", 3), nil)
+		dm, _ := sendHTML(Bot, chatID, wrapBQ(smallcaps("next track")), nil)
 		return playSong(chatID, dm, *nxt)
 	}
-	_, _ = sendHTML(Bot, chatID, richHeading("queue empty", 3), nil)
+	_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("queue empty")), nil)
 	return nil
 }
 
@@ -246,7 +245,7 @@ func handleStop(m *telegram.NewMessage) error {
 		return nil
 	}
 	leaveVC(m.ChatID())
-	_, _ = sendHTML(Bot, m.ChatID(), richHeading("playback stopped", 3), nil)
+	_, _ = sendHTML(Bot, m.ChatID(), wrapBQ(smallcaps("playback stopped")), nil)
 	return nil
 }
 
@@ -256,12 +255,12 @@ func handleClear(m *telegram.NewMessage) error {
 	}
 	stopAutoplay(m.ChatID())
 	clearQueue(m.ChatID())
-	_, _ = sendHTML(Bot, m.ChatID(), richHeading("queue cleared", 3), nil)
+	_, _ = sendHTML(Bot, m.ChatID(), wrapBQ(smallcaps("queue cleared")), nil)
 	return nil
 }
 
 func handleReboot(m *telegram.NewMessage) error {
 	leaveVC(m.ChatID())
-	_, _ = sendHTML(Bot, m.ChatID(), richHeading("chat rebooted", 3), nil)
+	_, _ = sendHTML(Bot, m.ChatID(), wrapBQ(smallcaps("chat rebooted")), nil)
 	return nil
 }
