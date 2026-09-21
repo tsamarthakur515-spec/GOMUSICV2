@@ -56,10 +56,9 @@ func handleDebugBQ(m *telegram.NewMessage) error {
 	if textMsg != nil {
 		editHTML2 := wrapBQ(smallcaps("edited text quote") + "\n\n" + smallcaps("still four lines here ok"))
 		e2, _ := captionEntities(editHTML2)
-		_, eerr := Bot.EditMessage(chatID, textMsg.ID, editHTML2, &telegram.SendOptions{ParseMode: "HTML", Entities: e2})
-		got, _ := textMsg.Client.GetMessageByID(chatID, textMsg.ID)
-		fmt.Fprintf(&report, "2 edit text err=<code>%v</code> sent_bq=<code>%v</code>\n", eerr, hasBlockquote(msgEntities(got)))
-		report.WriteString("<pre>" + richEsc(entityDump(msgEntities(got))) + "</pre>\n\n")
+		edited, eerr := Bot.EditMessage(chatID, textMsg.ID, editHTML2, &telegram.SendOptions{ParseMode: "HTML", Entities: e2})
+		fmt.Fprintf(&report, "2 edit text err=<code>%v</code> sent_bq=<code>%v</code>\n", eerr, hasBlockquote(msgEntities(edited)))
+		report.WriteString("<pre>" + richEsc(entityDump(msgEntities(edited))) + "</pre>\n\n")
 	}
 
 	photo := ""
@@ -77,14 +76,13 @@ func handleDebugBQ(m *telegram.NewMessage) error {
 	if photoMsg != nil {
 		editCap := wrapBQ(smallcaps("edited photo caption") + "\n\n" + smallcaps("help menu style text"))
 		e3, _ := captionEntities(editCap)
-		_, eerr := Bot.EditMessage(chatID, photoMsg.ID, editCap, &telegram.SendOptions{ParseMode: "HTML", Entities: e3})
-		got, _ := photoMsg.Client.GetMessageByID(chatID, photoMsg.ID)
-		fmt.Fprintf(&report, "4 edit photo caption err=<code>%v</code> sent_bq=<code>%v</code>\n", eerr, hasBlockquote(msgEntities(got)))
-		report.WriteString("<pre>" + richEsc(entityDump(msgEntities(got))) + "</pre>\n")
+		edited, eerr := Bot.EditMessage(chatID, photoMsg.ID, editCap, &telegram.SendOptions{ParseMode: "HTML", Entities: e3})
+		fmt.Fprintf(&report, "4 edit photo caption err=<code>%v</code> sent_bq=<code>%v</code>\n", eerr, hasBlockquote(msgEntities(edited)))
+		report.WriteString("<pre>" + richEsc(entityDump(msgEntities(edited))) + "</pre>\n")
 	}
 
-	out := wrapBQ(strings.TrimSpace(report.String()))
-	if _, err := sendHTML(Bot, chatID, out, nil); err != nil {
+	out := strings.TrimSpace(report.String())
+	if _, err := Bot.SendMessage(chatID, out, htmlSendOpts(nil)); err != nil {
 		log.Println("debugbq report:", err)
 		_, _ = Bot.SendMessage(chatID, htmlToPlain(out), nil)
 	}
