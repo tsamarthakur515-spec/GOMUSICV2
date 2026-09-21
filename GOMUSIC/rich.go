@@ -27,22 +27,26 @@ func rememberMenuPic(chatID int64, msgID int32, photo string) {
 	}
 }
 
-func lookupMenuPic(chatID int64, msgID int32, msg *telegram.NewMessage) any {
-	if msg != nil {
-		if p := msg.Photo(); p != nil {
-			return p
-		}
-		if m := msg.Media(); m != nil {
-			return m
-		}
-	}
+func menuPhotoURL(chatID int64, msgID int32) string {
 	if v, ok := menuPic.Load(menuPicKey(chatID, msgID)); ok {
-		return v
+		if s, ok := v.(string); ok && s != "" {
+			return s
+		}
 	}
 	if len(StartPhotos) > 0 {
 		return StartPhotos[0]
 	}
-	return nil
+	return ""
+}
+
+func withMenuPhoto(content string, chatID int64, msgID int32) string {
+	if p, _ := extractPhoto(content); p != "" {
+		return content
+	}
+	if url := menuPhotoURL(chatID, msgID); url != "" {
+		return richImg(url) + content
+	}
+	return content
 }
 
 func richEsc(v string) string { return html.EscapeString(v) }
@@ -207,13 +211,11 @@ func captionEntities(htmlText string) ([]telegram.MessageEntity, string) {
 func editPhotoCaption(chatID int64, msgID int32, msg *telegram.NewMessage, htmlText string, markup telegram.ReplyMarkup) error {
 	htmlText = telegramHTML(htmlText)
 	ents, _ := captionEntities(htmlText)
-	opts := &telegram.SendOptions{
+	_, err := Bot.EditMessage(chatID, msgID, htmlText, &telegram.SendOptions{
 		ParseMode:   "HTML",
 		Entities:    ents,
 		ReplyMarkup: markup,
-		Media:       lookupMenuPic(chatID, msgID, msg),
-	}
-	_, err := Bot.EditMessage(chatID, msgID, htmlText, opts)
+	})
 	if isNotModified(err) {
 		return nil
 	}
@@ -241,10 +243,7 @@ func editHTML(msg *telegram.NewMessage, content string, markup telegram.ReplyMar
 	if msg == nil {
 		return nil
 	}
-	photo, raw := extractPhoto(content)
-	if photo != "" {
-		rememberMenuPic(msgBotChatID(msg), msg.ID, photo)
-	}
+	_, raw := extractPhoto(content)
 	return editPhotoCaption(msgBotChatID(msg), msg.ID, msg, raw, markup)
 }
 
@@ -253,18 +252,23 @@ func editMenu(cb *telegram.CallbackQuery, content string, markup telegram.ReplyM
 		return nil
 	}
 	msg, _ := cb.GetMessage()
-	if msg == nil {
-		return nil
-	}
-	photo, raw := extractPhoto(content)
 	chatID := cb.ChatID
-	if chatID == 0 {
-		chatID = msgBotChatID(msg)
+	var msgID int32
+	if msg != nil {
+		msgID = msg.ID
+		if chatID == 0 {
+			chatID = msgBotChatID(msg)
+		}
 	}
-	if photo != "" {
-		rememberMenuPic(chatID, msg.ID, photo)
+	content = withMenuPhoto(content, chatID, msgID)
+	_, err := sendHTML(Bot, chatID, content, markup)
+	if err != nil {
+		return err
 	}
-	return editPhotoCaption(chatID, msg.ID, msg, raw, markup)
+	if msg != nil {
+		_, _ = msg.Delete()
+	}
+	return nil
 }
 
 func mixedKeyboard(rows [][][2]string) telegram.ReplyMarkup {
