@@ -201,21 +201,63 @@ func hasBlockquote(ents []telegram.MessageEntity) bool {
 }
 
 func captionEntities(htmlText string) ([]telegram.MessageEntity, string) {
-	// Do not rely on FormatMessage to parse <blockquote>. Telegram treats
-	// blockquote parsing inconsistently when the same caption is edited. Strip
-	// the markup, parse the remaining HTML, then attach one explicit entity
-	// covering the complete caption. This keeps send, help/about, and Back
-	// button edits identical.
-	text := telegramHTML(htmlText)
-	text = reBlockquote.ReplaceAllString(text, "")
-	ents, plain := Bot.FormatMessage(text, "HTML")
-	if strings.TrimSpace(plain) != "" {
-		ents = append([]telegram.MessageEntity{&telegram.MessageEntityBlockquote{
-			Collapsed: true,
-			Offset:    0,
-			Length:    int32(utf16Count(plain)),
-		}}, ents...)
+	// Remove only the blockquote tags, not their content.
+	// Then explicitly create Telegram blockquote entities at the
+	// correct offsets so they survive message/caption edits.
+
+	type quotePart struct {
+		text      string
+		collapsed bool
 	}
+
+	reQuote := regexp.MustCompile(`(?is)<blockquote([^>]*)>(.*?)</blockquote>`)
+	var quotes []quotePart
+
+	cleanHTML := reQuote.ReplaceAllStringFunc(htmlText, func(m string) string {
+		sub := reQuote.FindStringSubmatch(m)
+		if len(sub) < 3 {
+			return m
+		}
+
+		attrs := strings.ToLower(sub[1])
+		inner := sub[2]
+
+		quotes = append(quotes, quotePart{
+			text:      inner,
+			collapsed: strings.Contains(attrs, "expandable"),
+		})
+
+		return inner
+	})
+
+	text := telegramHTML(cleanHTML)
+	ents, plain := Bot.FormatMessage(text, "HTML")
+
+	// Add blockquote entities at their actual position.
+	searchFrom := 0
+
+	for _, q := range quotes {
+		_, quotePlain := Bot.FormatMessage(telegramHTML(q.text), "HTML")
+		if quotePlain == "" {
+			continue
+		}
+
+		idx := strings.Index(plain[searchFrom:], quotePlain)
+		if idx < 0 {
+			continue
+		}
+
+		idx += searchFrom
+
+		ents = append(ents, &telegram.MessageEntityBlockquote{
+			Collapsed: q.collapsed,
+			Offset:    int32(utf16Count(plain[:idx])),
+			Length:    int32(utf16Count(quotePlain)),
+		})
+
+		searchFrom = idx + len(quotePlain)
+	}
+
 	return ents, plain
 }
 
