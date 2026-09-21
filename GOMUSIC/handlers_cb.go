@@ -21,7 +21,7 @@ func alreadyHandledCallback(cb *telegram.CallbackQuery) bool {
 	if cb == nil {
 		return true
 	}
-	key := fmt.Sprintf("%d:%d:%s", cb.ChatID, cb.MsgID, string(cb.Data))
+	key := fmt.Sprintf("%d:%d:%d:%s", cb.QueryID, cb.ChatID, cb.MessageID, string(cb.Data))
 	cbOnceMu.Lock()
 	defer cbOnceMu.Unlock()
 	if t, ok := cbOnce.Load(key); ok {
