@@ -33,7 +33,8 @@ func smallcaps(s string) string {
 }
 
 func wrapBQ(s string) string {
-	return "<blockquote expandable>" + strings.TrimSpace(s) + "</blockquote>"
+	// Photo caption edits drop expandable_blockquote. Normal blockquote stays.
+	return "<blockquote>" + strings.TrimSpace(s) + "</blockquote>"
 }
 
 func fmtTime(seconds float64) string {
