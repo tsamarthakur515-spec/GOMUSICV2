@@ -88,33 +88,49 @@ func playSong(chatID int64, message *telegram.NewMessage, song Song) error {
 	}
 	setSeekState(chatID, 0)
 
-	mediaPath, err := resolveStream(song.URL, song.Video)
+	vcDone := make(chan struct{})
+	go func() {
+		_ = ensureVC(chatID)
+		close(vcDone)
+	}()
+
+	src, err := resolveDirectURL(song.URL, song.Video)
 	if err != nil {
 		removeFromQueue(chatID, 0)
 		_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("download failed")+"\n<code>"+richEsc(err.Error())+"</code>"), nil)
 		return err
 	}
-	if song.Video && !fileHasVideo(mediaPath) {
+	if src.File != "" && !isHTTP(src.File) && song.Video && !fileHasVideo(src.File) {
 		removeFromQueue(chatID, 0)
 		_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("vplay failed")+"\n"+smallcaps("api gave audio file, not video stream.")), nil)
-		return fmt.Errorf("no video track in %s", mediaPath)
+		return fmt.Errorf("no video track in %s", src.File)
 	}
-	if !song.Video {
-		if p, e := maybeApplyEffects(chatID, mediaPath); e == nil {
-			mediaPath = p
+	if src.File != "" && !isHTTP(src.File) && !song.Video {
+		if p, e := maybeApplyEffects(chatID, src.File); e == nil {
+			src.File, src.Audio = p, p
+		}
+		if secs := probeDuration(src.File); secs > 2 {
+			song.DurationSeconds = int(secs)
+			song.Duration = formatClock(secs)
 		}
 	}
-	if secs := probeDuration(mediaPath); secs > 2 {
-		song.DurationSeconds = int(secs)
-		song.Duration = formatClock(secs)
+	playPath := src.File
+	if playPath == "" {
+		playPath = src.Audio
 	}
-	setCurrentPath(chatID, mediaPath)
-	startErr := startNTGStreamWithMedia(chatID, buildMedia(mediaPath, song.Video, 0), song.Video)
+	setCurrentPath(chatID, playPath)
+
+	select {
+	case <-vcDone:
+	case <-time.After(4 * time.Second):
+	}
+
+	startErr := startNTGStreamWithMedia(chatID, buildMediaAV(src.Audio, src.Video, song.Video, 0), song.Video)
 	if startErr != nil {
 		low := strings.ToLower(startErr.Error())
 		if strings.Contains(low, "no active") || strings.Contains(low, "groupcall") {
 			_ = ensureVC(chatID)
-			startErr = startNTGStream(chatID, mediaPath, song.Video, 0)
+			startErr = startNTGStreamWithMedia(chatID, buildMediaAV(src.Audio, src.Video, song.Video, 0), song.Video)
 		}
 		if startErr != nil {
 			removeFromQueue(chatID, 0)
