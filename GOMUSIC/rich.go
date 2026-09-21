@@ -1,9 +1,15 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"html"
+	"io"
+	"net/http"
 	"regexp"
 	"strings"
+	"time"
 	"unicode/utf16"
 
 	"github.com/amarnathcjd/gogram/telegram"
@@ -12,6 +18,7 @@ import (
 var (
 	reImgSrc = regexp.MustCompile(`(?is)<img[^>]*src=["']([^"']+)["'][^>]*>`)
 	reTgBtn  = regexp.MustCompile(`(?is)<tg-button[^>]*>.*?</tg-button>`)
+	botHTTP  = &http.Client{Timeout: 20 * time.Second}
 )
 
 func richEsc(v string) string { return html.EscapeString(v) }
@@ -121,7 +128,7 @@ func telegramHTML(s string) string {
 func utf16Count(s string) int { return len(utf16.Encode([]rune(s))) }
 
 func htmlToPlain(s string) string {
-	_, plain := formatCaption(s)
+	_, plain := Bot.FormatMessage(telegramHTML(s), "HTML")
 	return plain
 }
 
@@ -160,29 +167,138 @@ func hasBlockquote(ents []telegram.MessageEntity) bool {
 	return false
 }
 
-func formatCaption(htmlText string) ([]telegram.MessageEntity, string) {
+func captionEntities(htmlText string) ([]telegram.MessageEntity, string) {
 	text := telegramHTML(htmlText)
-	var ents []telegram.MessageEntity
-	plain := text
-	if Bot != nil {
-		ents, plain = Bot.FormatMessage(text, "HTML")
-	}
+	ents, plain := Bot.FormatMessage(text, "HTML")
 	if !hasBlockquote(ents) && strings.TrimSpace(plain) != "" {
-		ents = append(ents, &telegram.MessageEntityBlockquote{
+		ents = append([]telegram.MessageEntity{&telegram.MessageEntityBlockquote{
 			Collapsed: true,
 			Offset:    0,
 			Length:    int32(utf16Count(plain)),
-		})
+		}}, ents...)
 	}
 	return ents, plain
 }
 
-func gogramEdit(chatID int64, msgID int32, htmlText string, markup telegram.ReplyMarkup) error {
-	if Bot == nil || chatID == 0 || msgID == 0 {
+func replyMarkupToAPI(markup telegram.ReplyMarkup) map[string]any {
+	im, ok := markup.(*telegram.ReplyInlineMarkup)
+	if !ok || im == nil {
 		return nil
 	}
-	ents, plain := formatCaption(htmlText)
-	_, err := Bot.EditMessage(chatID, msgID, plain, &telegram.SendOptions{
+	var rows [][]map[string]string
+	for _, row := range im.Rows {
+		if row == nil {
+			continue
+		}
+		var btns []map[string]string
+		for _, b := range row.Buttons {
+			if b == nil {
+				continue
+			}
+			item := map[string]string{"text": b.Text}
+			switch t := b.Type.(type) {
+			case *telegram.InlineButtonTypeCallback:
+				item["callback_data"] = string(t.Data)
+			case *telegram.InlineButtonTypeURL:
+				item["url"] = t.URL
+			default:
+				continue
+			}
+			btns = append(btns, item)
+		}
+		if len(btns) > 0 {
+			rows = append(rows, btns)
+		}
+	}
+	if len(rows) == 0 {
+		return nil
+	}
+	return map[string]any{"inline_keyboard": rows}
+}
+
+func botAPIPost(method string, body map[string]any) error {
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return err
+	}
+	resp, err := botHTTP.Post("https://api.telegram.org/bot"+BotToken+"/"+method, "application/json", bytes.NewReader(raw))
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(resp.Body)
+	var parsed struct {
+		OK          bool   `json:"ok"`
+		Description string `json:"description"`
+	}
+	_ = json.Unmarshal(out, &parsed)
+	if parsed.OK {
+		return nil
+	}
+	desc := parsed.Description
+	if desc == "" {
+		desc = string(out)
+	}
+	return fmt.Errorf("%s", desc)
+}
+
+func editPhotoCaption(chatID int64, msgID int32, msg *telegram.NewMessage, htmlText string, markup telegram.ReplyMarkup) error {
+	htmlText = telegramHTML(htmlText)
+	ents, plain := captionEntities(htmlText)
+
+	opts := &telegram.SendOptions{
+		ParseMode:   "HTML",
+		Entities:    ents,
+		ReplyMarkup: markup,
+	}
+	if msg != nil {
+		if p := msg.Photo(); p != nil {
+			opts.Media = p
+		} else if media := msg.Media(); media != nil {
+			opts.Media = media
+		}
+	}
+	// Pass HTML string so gogram parseEntities also builds MessageEntityBlockquote.
+	_, err := Bot.EditMessage(chatID, msgID, htmlText, opts)
+	if err == nil || isNotModified(err) {
+		return nil
+	}
+
+	// Same photo + HTML caption, like a fresh sendPhoto.
+	if msg != nil {
+		if fid := msg.FileID(); fid != "" {
+			body := map[string]any{
+				"chat_id":    chatID,
+				"message_id": msgID,
+				"media": map[string]any{
+					"type":       "photo",
+					"media":      fid,
+					"caption":    htmlText,
+					"parse_mode": "HTML",
+				},
+			}
+			if kb := replyMarkupToAPI(markup); kb != nil {
+				body["reply_markup"] = kb
+			}
+			if e := botAPIPost("editMessageMedia", body); e == nil || isNotModified(e) {
+				return nil
+			}
+		}
+	}
+
+	body := map[string]any{
+		"chat_id":                  chatID,
+		"message_id":               msgID,
+		"caption":                  htmlText,
+		"parse_mode":               "HTML",
+	}
+	if kb := replyMarkupToAPI(markup); kb != nil {
+		body["reply_markup"] = kb
+	}
+	if e := botAPIPost("editMessageCaption", body); e == nil || isNotModified(e) {
+		return nil
+	}
+	_, err = Bot.EditMessage(chatID, msgID, plain, &telegram.SendOptions{
 		Entities:    ents,
 		ReplyMarkup: markup,
 	})
@@ -213,7 +329,7 @@ func editHTML(msg *telegram.NewMessage, content string, markup telegram.ReplyMar
 		return nil
 	}
 	_, raw := extractPhoto(content)
-	return gogramEdit(msgBotChatID(msg), msg.ID, raw, markup)
+	return editPhotoCaption(msgBotChatID(msg), msg.ID, msg, raw, markup)
 }
 
 func editMenu(cb *telegram.CallbackQuery, content string, markup telegram.ReplyMarkup) error {
@@ -229,7 +345,7 @@ func editMenu(cb *telegram.CallbackQuery, content string, markup telegram.ReplyM
 	if chatID == 0 {
 		chatID = msgBotChatID(msg)
 	}
-	return gogramEdit(chatID, msg.ID, raw, markup)
+	return editPhotoCaption(chatID, msg.ID, msg, raw, markup)
 }
 
 func mixedKeyboard(rows [][][2]string) telegram.ReplyMarkup {
