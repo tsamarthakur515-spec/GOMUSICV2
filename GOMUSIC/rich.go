@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf16"
 
 	"github.com/amarnathcjd/gogram/telegram"
 )
@@ -129,22 +130,193 @@ func telegramHTML(s string) string {
 }
 
 func htmlToPlain(s string) string {
-	s = telegramHTML(s)
-	s = strings.ReplaceAll(s, "<b>", "")
-	s = strings.ReplaceAll(s, "</b>", "")
-	s = strings.ReplaceAll(s, "<i>", "")
-	s = strings.ReplaceAll(s, "</i>", "")
-	s = strings.ReplaceAll(s, "<code>", "")
-	s = strings.ReplaceAll(s, "</code>", "")
-	for {
-		start := strings.Index(s, "<")
-		end := strings.Index(s, ">")
-		if start < 0 || end < start {
+	plain, _ := htmlToEntities(s)
+	return plain
+}
+
+func utf16Count(s string) int {
+	return len(utf16.Encode([]rune(s)))
+}
+
+func htmlToEntities(raw string) (string, []map[string]any) {
+	s := telegramHTML(raw)
+	var plain strings.Builder
+	type openTag struct {
+		kind string
+		off  int
+		url  string
+	}
+	var stack []openTag
+	var ents []map[string]any
+	i := 0
+	for i < len(s) {
+		if s[i] != '<' {
+			r, size := decodeRune(s[i:])
+			plain.WriteRune(r)
+			i += size
+			continue
+		}
+		end := strings.IndexByte(s[i:], '>')
+		if end < 0 {
+			plain.WriteString(s[i:])
 			break
 		}
-		s = s[:start] + s[end+1:]
+		tag := strings.TrimSpace(s[i+1 : i+end])
+		i = i + end + 1
+		low := strings.ToLower(tag)
+		closing := strings.HasPrefix(low, "/")
+		if closing {
+			low = strings.TrimSpace(low[1:])
+		}
+		name := strings.Fields(low)
+		if len(name) == 0 {
+			continue
+		}
+		kind := name[0]
+		switch kind {
+		case "blockquote":
+			if closing {
+				for n := len(stack) - 1; n >= 0; n-- {
+					if stack[n].kind == "blockquote" || stack[n].kind == "expandable_blockquote" {
+						e := stack[n]
+						stack = append(stack[:n], stack[n+1:]...)
+						ents = append(ents, map[string]any{"type": e.kind, "offset": e.off, "length": utf16Count(plain.String()) - e.off})
+						break
+					}
+				}
+				continue
+			}
+			k := "blockquote"
+			if strings.Contains(low, "expandable") {
+				k = "expandable_blockquote"
+			}
+			stack = append(stack, openTag{kind: k, off: utf16Count(plain.String())})
+		case "a":
+			if closing {
+				for n := len(stack) - 1; n >= 0; n-- {
+					if stack[n].kind == "text_link" {
+						e := stack[n]
+						stack = append(stack[:n], stack[n+1:]...)
+						item := map[string]any{"type": "text_link", "offset": e.off, "length": utf16Count(plain.String()) - e.off}
+						if e.url != "" {
+							item["url"] = e.url
+						}
+						ents = append(ents, item)
+						break
+					}
+				}
+				continue
+			}
+			url := hrefOf(tag)
+			stack = append(stack, openTag{kind: "text_link", off: utf16Count(plain.String()), url: url})
+		case "b", "strong":
+			if closing {
+				closeSimple(&stack, &ents, "bold", utf16Count(plain.String()))
+			} else {
+				stack = append(stack, openTag{kind: "bold", off: utf16Count(plain.String())})
+			}
+		case "i", "em":
+			if closing {
+				closeSimple(&stack, &ents, "italic", utf16Count(plain.String()))
+			} else {
+				stack = append(stack, openTag{kind: "italic", off: utf16Count(plain.String())})
+			}
+		case "code":
+			if closing {
+				closeSimple(&stack, &ents, "code", utf16Count(plain.String()))
+			} else {
+				stack = append(stack, openTag{kind: "code", off: utf16Count(plain.String())})
+			}
+		case "u":
+			if closing {
+				closeSimple(&stack, &ents, "underline", utf16Count(plain.String()))
+			} else {
+				stack = append(stack, openTag{kind: "underline", off: utf16Count(plain.String())})
+			}
+		}
 	}
-	return strings.TrimSpace(html.UnescapeString(s))
+	for n := len(stack) - 1; n >= 0; n-- {
+		e := stack[n]
+		item := map[string]any{"type": e.kind, "offset": e.off, "length": utf16Count(plain.String()) - e.off}
+		if e.url != "" {
+			item["url"] = e.url
+		}
+		ents = append(ents, item)
+	}
+	out := html.UnescapeString(plain.String())
+	if !hasEntityType(ents, "expandable_blockquote") && !hasEntityType(ents, "blockquote") && strings.TrimSpace(out) != "" {
+		ents = append([]map[string]any{{"type": "expandable_blockquote", "offset": 0, "length": utf16Count(out)}}, ents...)
+	}
+	return out, ents
+}
+
+func decodeRune(s string) (rune, int) {
+	if s == "" {
+		return 0, 0
+	}
+	r := []rune(s)
+	return r[0], len(string(r[0]))
+}
+
+func hrefOf(tag string) string {
+	low := strings.ToLower(tag)
+	for _, key := range []string{`href="`, `href='`, `href=`} {
+		idx := strings.Index(low, key)
+		if idx < 0 {
+			continue
+		}
+		start := idx + len(key)
+		rest := tag[start:]
+		switch {
+		case strings.HasPrefix(key, `href="`):
+			if n := strings.Index(rest, `"`); n >= 0 {
+				return html.UnescapeString(rest[:n])
+			}
+		case strings.HasPrefix(key, `href='`):
+			if n := strings.Index(rest, `'`); n >= 0 {
+				return html.UnescapeString(rest[:n])
+			}
+		default:
+			f := strings.Fields(rest)
+			if len(f) > 0 {
+				return html.UnescapeString(strings.Trim(f[0], `"'`))
+			}
+		}
+	}
+	return ""
+}
+
+func closeSimple(stack *[]openTagLite, ents *[]map[string]any, kind string, end int) {
+}
+
+type openTagLite struct {
+	kind string
+	off  int
+	url  string
+}
+
+func closeKind(stack *[]struct {
+	kind string
+	off  int
+	url  string
+}, ents *[]map[string]any, kind string, end int) {
+	s := *stack
+	for n := len(s) - 1; n >= 0; n-- {
+		if s[n].kind == kind {
+			*ents = append(*ents, map[string]any{"type": kind, "offset": s[n].off, "length": end - s[n].off})
+			*stack = append(s[:n], s[n+1:]...)
+			return
+		}
+	}
+}
+
+func hasEntityType(ents []map[string]any, typ string) bool {
+	for _, e := range ents {
+		if e["type"] == typ {
+			return true
+		}
+	}
+	return false
 }
 
 func isNotModified(err error) bool {
@@ -217,18 +389,24 @@ func botAPIEdit(chatID int64, msgID int32, htmlText string, markup telegram.Repl
 	if BotToken == "" || chatID == 0 || msgID == 0 {
 		return fmt.Errorf("bot api edit missing ids")
 	}
+	plain, ents := htmlToEntities(htmlText)
 	method := "editMessageText"
 	body := map[string]any{
 		"chat_id":    chatID,
 		"message_id": msgID,
-		"parse_mode": "HTML",
 	}
 	if caption {
 		method = "editMessageCaption"
-		body["caption"] = htmlText
+		body["caption"] = plain
+		if len(ents) > 0 {
+			body["caption_entities"] = ents
+		}
 	} else {
-		body["text"] = htmlText
+		body["text"] = plain
 		body["disable_web_page_preview"] = true
+		if len(ents) > 0 {
+			body["entities"] = ents
+		}
 	}
 	if kb := replyMarkupToAPI(markup); kb != nil {
 		body["reply_markup"] = kb
@@ -281,31 +459,37 @@ func editHTML(msg *telegram.NewMessage, content string, markup telegram.ReplyMar
 	_, raw := extractPhoto(content)
 	text := telegramHTML(raw)
 	chatID := msgBotChatID(msg)
-
-	// Start/help/about/player are photo messages. Caption-first like a working
-	// edit_caption. Do not MTProto-edit afterwards — that strips blockquote.
-	hasMedia := msg.IsMedia() || msg.Photo() != nil || msg.Media() != nil
-	if hasMedia {
-		err := botAPIEdit(chatID, msg.ID, text, markup, true)
-		if err == nil || isNotModified(err) {
-			return nil
-		}
-		err = botAPIEdit(chatID, msg.ID, text, markup, false)
-		if err == nil || isNotModified(err) {
-			return nil
-		}
-		return err
-	}
-
-	err := botAPIEdit(chatID, msg.ID, text, markup, false)
+	// Always try caption first: start/help/about/player are photo posts.
+	err := botAPIEdit(chatID, msg.ID, text, markup, true)
 	if err == nil || isNotModified(err) {
 		return nil
 	}
-	err = botAPIEdit(chatID, msg.ID, text, markup, true)
+	err = botAPIEdit(chatID, msg.ID, text, markup, false)
 	if err == nil || isNotModified(err) {
 		return nil
 	}
 	return err
+}
+
+func editMenu(cb *telegram.CallbackQuery, content string, markup telegram.ReplyMarkup) error {
+	if cb == nil {
+		return nil
+	}
+	msg, _ := cb.GetMessage()
+	if msg == nil {
+		return nil
+	}
+	_, raw := extractPhoto(content)
+	text := telegramHTML(raw)
+	chatID := cb.ChatID
+	if chatID == 0 {
+		chatID = msgBotChatID(msg)
+	}
+	err := botAPIEdit(chatID, msg.ID, text, markup, true)
+	if err == nil || isNotModified(err) {
+		return nil
+	}
+	return botAPIEdit(chatID, msg.ID, text, markup, false)
 }
 
 func mixedKeyboard(rows [][][2]string) telegram.ReplyMarkup {
