@@ -16,6 +16,7 @@ var lastCmd = map[int64]time.Time{}
 func registerHandlers() {
 	Bot.On("message:/start", handleStart)
 	Bot.On("message:/help", handleHelp)
+	Bot.On("message:/debugbq", handleDebugBQ)
 	Bot.On("message:/play", handlePlay)
 	Bot.On("message:/vplay", handleVPlay)
 	Bot.On("message:/pause", handlePause)
