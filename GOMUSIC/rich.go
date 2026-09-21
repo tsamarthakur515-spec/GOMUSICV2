@@ -16,12 +16,7 @@ import (
 var (
 	reImgSrc = regexp.MustCompile(`(?is)<img[^>]*src=["']([^"']+)["'][^>]*>`)
 	reTgBtn  = regexp.MustCompile(`(?is)<tg-button[^>]*>.*?</tg-button>`)
-	// Blockquotes are added as an explicit Telegram entity below. Keeping the
-	// HTML tag in the input makes FormatMessage behave differently for media
-	// captions and message edits, which is why the quote disappeared after a
-	// menu button was pressed.
-	reBlockquote = regexp.MustCompile(`(?is)</?blockquote(?:\s[^>]*)?>`)
-	menuPic      sync.Map
+	menuPic  sync.Map
 )
 
 func menuPicKey(chatID int64, msgID int32) string {
@@ -218,66 +213,13 @@ func hasBlockquote(ents []telegram.MessageEntity) bool {
 }
 
 func captionEntities(htmlText string) ([]telegram.MessageEntity, string) {
-	// Remove only the blockquote tags, not their content.
-	// Then explicitly create Telegram blockquote entities at the
-	// correct offsets so they survive message/caption edits.
-
-	type quotePart struct {
-		text      string
-		collapsed bool
-	}
-
-	reQuote := regexp.MustCompile(`(?is)<blockquote([^>]*)>(.*?)</blockquote>`)
-	var quotes []quotePart
-
-	cleanHTML := reQuote.ReplaceAllStringFunc(htmlText, func(m string) string {
-		sub := reQuote.FindStringSubmatch(m)
-		if len(sub) < 3 {
-			return m
-		}
-
-		attrs := strings.ToLower(sub[1])
-		inner := sub[2]
-
-		quotes = append(quotes, quotePart{
-			text:      inner,
-			collapsed: strings.Contains(attrs, "expandable"),
-		})
-
-		return inner
-	})
-
-	text := telegramHTML(cleanHTML)
+	// Let gogram parse the native HTML blockquote entity. This is the same
+	// path used by the reference KanhaMusic project and keeps the entity
+	// offsets/nesting valid for both new captions and edited captions.
+	text := telegramHTML(htmlText)
 	ents, plain := Bot.FormatMessage(text, "HTML")
 
-	// Add blockquote entities at their actual position.
-	searchFrom := 0
-
-	for _, q := range quotes {
-		_, quotePlain := Bot.FormatMessage(telegramHTML(q.text), "HTML")
-		if quotePlain == "" {
-			continue
-		}
-
-		idx := strings.Index(plain[searchFrom:], quotePlain)
-		if idx < 0 {
-			continue
-		}
-
-		idx += searchFrom
-
-		ents = append(ents, &telegram.MessageEntityBlockquote{
-			Collapsed: q.collapsed,
-			Offset:    int32(utf16Count(plain[:idx])),
-			Length:    int32(utf16Count(quotePlain)),
-		})
-
-		searchFrom = idx + len(quotePlain)
-	}
-
-	// Telegram expects message entities in offset order. The blockquote is
-	// added after the HTML parser's entities above, so normalize the order
-	// before sending or editing the message/caption.
+	// Keep entities in Telegram's canonical order for media-caption edits.
 	sort.SliceStable(ents, func(i, j int) bool {
 		offI, lenI := entityBounds(ents[i])
 		offJ, lenJ := entityBounds(ents[j])
@@ -365,16 +307,45 @@ func editMenu(cb *telegram.CallbackQuery, content string, markup telegram.ReplyM
 
 	return err
 }
+
+const (
+	buttonRed   = "red"
+	buttonBlue  = "blue"
+	buttonGreen = "green"
+)
+
+func styleMenuButton(button telegram.KeyboardInlineButton, colour string) telegram.KeyboardInlineButton {
+	switch strings.ToLower(colour) {
+	case buttonRed:
+		button.Style = &telegram.KeyboardButtonStyle{BgDanger: true}
+	case buttonBlue:
+		button.Style = &telegram.KeyboardButtonStyle{BgPrimary: true}
+	case buttonGreen:
+		button.Style = &telegram.KeyboardButtonStyle{BgSuccess: true}
+	}
+	return button
+}
+
 func mixedKeyboard(rows [][][2]string) telegram.ReplyMarkup {
 	kb := telegram.NewKeyboard()
-	for _, row := range rows {
+	for rowIndex, row := range rows {
 		btns := make([]telegram.KeyboardInlineButton, 0, len(row))
-		for _, b := range row {
-			if strings.HasPrefix(b[1], "http://") || strings.HasPrefix(b[1], "https://") || strings.HasPrefix(b[1], "tg://") {
-				btns = append(btns, telegram.Button.URL(b[0], b[1]))
-			} else {
-				btns = append(btns, telegram.Button.Data(b[0], b[1]))
+		for buttonIndex, b := range row {
+			colour := buttonBlue
+			switch (rowIndex + buttonIndex) % 3 {
+			case 0:
+				colour = buttonRed
+			case 2:
+				colour = buttonGreen
 			}
+
+			var button telegram.KeyboardInlineButton
+			if strings.HasPrefix(b[1], "http://") || strings.HasPrefix(b[1], "https://") || strings.HasPrefix(b[1], "tg://") {
+				button = telegram.Button.URL(b[0], b[1])
+			} else {
+				button = telegram.Button.Data(b[0], b[1])
+			}
+			btns = append(btns, styleMenuButton(button, colour))
 		}
 		kb.AddRow(btns...)
 	}

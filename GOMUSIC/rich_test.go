@@ -39,3 +39,21 @@ func TestCaptionEntitiesPreserveBlockquote(t *testing.T) {
 		}
 	}
 }
+
+func TestMixedKeyboardAppliesButtonStyles(t *testing.T) {
+	markup, ok := mixedKeyboard([][][2]string{
+		{{"one", "one"}, {"two", "two"}},
+		{{"link", "https://example.com"}},
+	}).(*telegram.ReplyInlineMarkup)
+	if !ok {
+		t.Fatal("mixedKeyboard did not return inline markup")
+	}
+
+	for rowIndex, row := range markup.Rows {
+		for buttonIndex, button := range row.Buttons {
+			if button.Style == nil {
+				t.Fatalf("button %d/%d has no color style", rowIndex, buttonIndex)
+			}
+		}
+	}
+}
