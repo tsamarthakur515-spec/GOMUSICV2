@@ -262,8 +262,7 @@ func captionEntities(htmlText string) ([]telegram.MessageEntity, string) {
 }
 
 func editPhotoCaption(chatID int64, msgID int32, msg *telegram.NewMessage, htmlText string, markup telegram.ReplyMarkup) error {
-	htmlText = telegramHTML(htmlText)
-	ents, plain := captionEntities(htmlText)
+    ents, plain := captionEntities(htmlText)
 	_, err := Bot.EditMessage(chatID, msgID, plain, &telegram.SendOptions{
 		ParseMode:   "",
 		Entities:    ents,
