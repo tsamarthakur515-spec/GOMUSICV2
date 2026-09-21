@@ -18,7 +18,17 @@ var (
 	connectWait  = map[int64]chan error{}
 	connectMu    sync.Mutex
 	currentPaths = map[int64]string{}
+	streamGen    = map[int64]int{}
+	streamAt     = map[int64]time.Time{}
 )
+
+func bumpStream(chatID int64) int {
+	connectMu.Lock()
+	defer connectMu.Unlock()
+	streamGen[chatID]++
+	streamAt[chatID] = time.Now()
+	return streamGen[chatID]
+}
 
 func setCurrentPath(chatID int64, path string) {
 	connectMu.Lock()
@@ -40,6 +50,7 @@ func currentPath(chatID int64) string {
 }
 
 func leaveVC(chatID int64) {
+	bumpStream(chatID)
 	stopAutoplay(chatID)
 	for _, song := range clearQueue(chatID) {
 		deleteFile(song.FilePath)
@@ -55,20 +66,35 @@ func leaveVC(chatID int64) {
 }
 
 func handleStreamEnd(chatID int64) {
+	connectMu.Lock()
+	started := streamAt[chatID]
+	gen := streamGen[chatID]
+	connectMu.Unlock()
+	if started.IsZero() || time.Since(started) < 4*time.Second {
+		return
+	}
+	time.Sleep(500 * time.Millisecond)
+	connectMu.Lock()
+	if streamGen[chatID] != gen {
+		connectMu.Unlock()
+		return
+	}
+	connectMu.Unlock()
+
 	done := popCurrent(chatID)
 	if done != nil {
 		time.Sleep(time.Second)
 		deleteFile(done.FilePath)
 	}
-	time.Sleep(2 * time.Second)
+	time.Sleep(time.Second)
 	nxt := peekCurrent(chatID)
 	if nxt != nil {
-		msg, _ := sendHTML(Bot, chatID, richHeading("next track", 3)+richNote(richEsc(nxt.Title)), nil)
+		msg, _ := sendHTML(Bot, chatID, wrapBQ(smallcaps("next track")+"\n"+richEsc(nxt.Title)), nil)
 		_ = playSong(chatID, msg, *nxt)
 		return
 	}
 	leaveVC(chatID)
-	_, _ = sendHTML(Bot, chatID, richHeading("queue finished", 3), nil)
+	_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("queue finished")), nil)
 }
 
 func ensureVC(chatID int64) error {
@@ -140,95 +166,5 @@ func startNTGStream(chatID int64, path string, video bool, seekSec int) error {
 		return errors.New("ntgcalls not ready")
 	}
 	media := buildMedia(path, video, seekSec)
-	if Calls.Calls()[chatID] != nil {
-		return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
-	}
-
-	var last error
-	for attempt := 1; attempt <= 4; attempt++ {
-		inputCall, err := resolveActiveCall(chatID)
-		if err != nil {
-			if e := ensureVC(chatID); e == nil {
-				inputCall, err = resolveActiveCall(chatID)
-			}
-			if err != nil {
-				last = err
-				time.Sleep(time.Duration(attempt) * 2 * time.Second)
-				continue
-			}
-		}
-
-		local, err := Calls.CreateCall(chatID)
-		if err != nil {
-			_ = Calls.Stop(chatID)
-			last = err
-			time.Sleep(2 * time.Second)
-			continue
-		}
-		if err := Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media); err != nil {
-			_ = Calls.Stop(chatID)
-			last = err
-			time.Sleep(2 * time.Second)
-			continue
-		}
-
-		me, err := Assistant.GetMe()
-		if err != nil {
-			_ = Calls.Stop(chatID)
-			return err
-		}
-		wait := make(chan error, 1)
-		connectMu.Lock()
-		connectWait[chatID] = wait
-		connectMu.Unlock()
-
-		updates, err := Assistant.PhoneJoinGroupCall(&telegram.PhoneJoinGroupCallParams{
-			Call:         inputCall,
-			JoinAs:       &telegram.InputPeerUser{UserID: me.ID, AccessHash: me.AccessHash},
-			VideoStopped: !video,
-			Muted:        false,
-			Params:       &telegram.DataJson{Data: local},
-		})
-		if err != nil {
-			_ = Calls.Stop(chatID)
-			last = err
-			log.Printf("PhoneJoinGroupCall try %d/4: %v", attempt, err)
-			if shouldRetryJoin(err) && attempt < 4 {
-				time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
-				continue
-			}
-			return err
-		}
-		remote := "{\"transport\": null}"
-		if u, ok := updates.(*telegram.UpdatesObj); ok {
-			for _, upd := range u.Updates {
-				if conn, ok := upd.(*telegram.UpdateGroupCallConnection); ok && conn.Params != nil {
-					remote = conn.Params.Data
-				}
-			}
-		}
-		if err := Calls.Connect(chatID, remote, false); err != nil {
-			_ = Calls.Stop(chatID)
-			last = err
-			time.Sleep(2 * time.Second)
-			continue
-		}
-		select {
-		case err := <-wait:
-			if err != nil {
-				last = err
-				_ = Calls.Stop(chatID)
-				time.Sleep(2 * time.Second)
-				continue
-			}
-		case <-time.After(20 * time.Second):
-		}
-		activeCalls[chatID] = inputCall
-		callIsVideo[chatID] = video
-		return nil
-	}
-	if last == nil {
-		last = errors.New("join call failed")
-	}
-	return last
+	return startNTGStreamWithMedia(chatID, media, video)
 }
