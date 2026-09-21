@@ -1,15 +1,9 @@
 package main
 
 import (
-	"bytes"
-	"encoding/json"
-	"fmt"
 	"html"
-	"io"
-	"net/http"
 	"regexp"
 	"strings"
-	"time"
 	"unicode/utf16"
 
 	"github.com/amarnathcjd/gogram/telegram"
@@ -18,14 +12,7 @@ import (
 var (
 	reImgSrc = regexp.MustCompile(`(?is)<img[^>]*src=["']([^"']+)["'][^>]*>`)
 	reTgBtn  = regexp.MustCompile(`(?is)<tg-button[^>]*>.*?</tg-button>`)
-	botHTTP  = &http.Client{Timeout: 20 * time.Second}
 )
-
-type htmlOpen struct {
-	kind string
-	off  int
-	url  string
-}
 
 func richEsc(v string) string { return html.EscapeString(v) }
 
@@ -133,157 +120,8 @@ func telegramHTML(s string) string {
 
 func utf16Count(s string) int { return len(utf16.Encode([]rune(s))) }
 
-func hrefOf(tag string) string {
-	low := strings.ToLower(tag)
-	for _, key := range []string{`href="`, `href='`, `href=`} {
-		idx := strings.Index(low, key)
-		if idx < 0 {
-			continue
-		}
-		rest := tag[idx+len(key):]
-		switch {
-		case strings.HasPrefix(key, `href="`):
-			if n := strings.Index(rest, `"`); n >= 0 {
-				return html.UnescapeString(rest[:n])
-			}
-		case strings.HasPrefix(key, `href='`):
-			if n := strings.Index(rest, `'`); n >= 0 {
-				return html.UnescapeString(rest[:n])
-			}
-		default:
-			f := strings.Fields(rest)
-			if len(f) > 0 {
-				return html.UnescapeString(strings.Trim(f[0], `"'`))
-			}
-		}
-	}
-	return ""
-}
-
-func popKind(stack *[]htmlOpen, ents *[]map[string]any, kinds []string, end int) {
-	s := *stack
-	for n := len(s) - 1; n >= 0; n-- {
-		match := false
-		for _, k := range kinds {
-			if s[n].kind == k {
-				match = true
-				break
-			}
-		}
-		if !match {
-			continue
-		}
-		item := map[string]any{"type": s[n].kind, "offset": s[n].off, "length": end - s[n].off}
-		if s[n].url != "" {
-			item["url"] = s[n].url
-		}
-		*ents = append(*ents, item)
-		*stack = append(s[:n], s[n+1:]...)
-		return
-	}
-}
-
-func hasEntityType(ents []map[string]any, typ string) bool {
-	for _, e := range ents {
-		if e["type"] == typ {
-			return true
-		}
-	}
-	return false
-}
-
-func htmlToEntities(raw string) (string, []map[string]any) {
-	s := telegramHTML(raw)
-	var plain strings.Builder
-	var stack []htmlOpen
-	var ents []map[string]any
-	i := 0
-	for i < len(s) {
-		if s[i] != '<' {
-			rs := []rune(s[i:])
-			plain.WriteRune(rs[0])
-			i += len(string(rs[0]))
-			continue
-		}
-		end := strings.IndexByte(s[i:], '>')
-		if end < 0 {
-			plain.WriteString(s[i:])
-			break
-		}
-		tag := strings.TrimSpace(s[i+1 : i+end])
-		i = i + end + 1
-		low := strings.ToLower(tag)
-		closing := strings.HasPrefix(low, "/")
-		if closing {
-			low = strings.TrimSpace(low[1:])
-		}
-		fields := strings.Fields(low)
-		if len(fields) == 0 {
-			continue
-		}
-		kind := fields[0]
-		cur := utf16Count(plain.String())
-		switch kind {
-		case "blockquote":
-			if closing {
-				popKind(&stack, &ents, []string{"blockquote", "expandable_blockquote"}, cur)
-				continue
-			}
-			k := "blockquote"
-			if strings.Contains(low, "expandable") {
-				k = "expandable_blockquote"
-			}
-			stack = append(stack, htmlOpen{kind: k, off: cur})
-		case "a":
-			if closing {
-				popKind(&stack, &ents, []string{"text_link"}, cur)
-				continue
-			}
-			stack = append(stack, htmlOpen{kind: "text_link", off: cur, url: hrefOf(tag)})
-		case "b", "strong":
-			if closing {
-				popKind(&stack, &ents, []string{"bold"}, cur)
-			} else {
-				stack = append(stack, htmlOpen{kind: "bold", off: cur})
-			}
-		case "i", "em":
-			if closing {
-				popKind(&stack, &ents, []string{"italic"}, cur)
-			} else {
-				stack = append(stack, htmlOpen{kind: "italic", off: cur})
-			}
-		case "code":
-			if closing {
-				popKind(&stack, &ents, []string{"code"}, cur)
-			} else {
-				stack = append(stack, htmlOpen{kind: "code", off: cur})
-			}
-		case "u":
-			if closing {
-				popKind(&stack, &ents, []string{"underline"}, cur)
-			} else {
-				stack = append(stack, htmlOpen{kind: "underline", off: cur})
-			}
-		}
-	}
-	endOff := utf16Count(plain.String())
-	for n := len(stack) - 1; n >= 0; n-- {
-		e := stack[n]
-		item := map[string]any{"type": e.kind, "offset": e.off, "length": endOff - e.off}
-		if e.url != "" {
-			item["url"] = e.url
-		}
-		ents = append(ents, item)
-	}
-	out := html.UnescapeString(plain.String())
-	if strings.TrimSpace(out) != "" && !hasEntityType(ents, "expandable_blockquote") && !hasEntityType(ents, "blockquote") {
-		ents = append([]map[string]any{{"type": "expandable_blockquote", "offset": 0, "length": utf16Count(out)}}, ents...)
-	}
-	return out, ents
-}
-
 func htmlToPlain(s string) string {
-	plain, _ := htmlToEntities(s)
+	_, plain := formatCaption(s)
 	return plain
 }
 
@@ -313,91 +151,45 @@ func msgBotChatID(msg *telegram.NewMessage) int64 {
 	return msg.ChatID()
 }
 
-func replyMarkupToAPI(markup telegram.ReplyMarkup) map[string]any {
-	im, ok := markup.(*telegram.ReplyInlineMarkup)
-	if !ok || im == nil {
-		return nil
-	}
-	var rows [][]map[string]string
-	for _, row := range im.Rows {
-		if row == nil {
-			continue
-		}
-		var btns []map[string]string
-		for _, b := range row.Buttons {
-			if b == nil {
-				continue
-			}
-			item := map[string]string{"text": b.Text}
-			switch t := b.Type.(type) {
-			case *telegram.InlineButtonTypeCallback:
-				item["callback_data"] = string(t.Data)
-			case *telegram.InlineButtonTypeURL:
-				item["url"] = t.URL
-			default:
-				continue
-			}
-			btns = append(btns, item)
-		}
-		if len(btns) > 0 {
-			rows = append(rows, btns)
+func hasBlockquote(ents []telegram.MessageEntity) bool {
+	for _, e := range ents {
+		if _, ok := e.(*telegram.MessageEntityBlockquote); ok {
+			return true
 		}
 	}
-	if len(rows) == 0 {
-		return nil
-	}
-	return map[string]any{"inline_keyboard": rows}
+	return false
 }
 
-func botAPIEdit(chatID int64, msgID int32, htmlText string, markup telegram.ReplyMarkup, caption bool) error {
-	if BotToken == "" || chatID == 0 || msgID == 0 {
-		return fmt.Errorf("bot api edit missing ids")
+func formatCaption(htmlText string) ([]telegram.MessageEntity, string) {
+	text := telegramHTML(htmlText)
+	var ents []telegram.MessageEntity
+	plain := text
+	if Bot != nil {
+		ents, plain = Bot.FormatMessage(text, "HTML")
 	}
-	plain, ents := htmlToEntities(htmlText)
-	method := "editMessageText"
-	body := map[string]any{
-		"chat_id":    chatID,
-		"message_id": msgID,
+	if !hasBlockquote(ents) && strings.TrimSpace(plain) != "" {
+		ents = append(ents, &telegram.MessageEntityBlockquote{
+			Collapsed: true,
+			Offset:    0,
+			Length:    int32(utf16Count(plain)),
+		})
 	}
-	if caption {
-		method = "editMessageCaption"
-		body["caption"] = plain
-		if len(ents) > 0 {
-			body["caption_entities"] = ents
-		}
-	} else {
-		body["text"] = plain
-		body["disable_web_page_preview"] = true
-		if len(ents) > 0 {
-			body["entities"] = ents
-		}
-	}
-	if kb := replyMarkupToAPI(markup); kb != nil {
-		body["reply_markup"] = kb
-	}
-	raw, err := json.Marshal(body)
-	if err != nil {
-		return err
-	}
-	resp, err := botHTTP.Post("https://api.telegram.org/bot"+BotToken+"/"+method, "application/json", bytes.NewReader(raw))
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-	out, _ := io.ReadAll(resp.Body)
-	var parsed struct {
-		OK          bool   `json:"ok"`
-		Description string `json:"description"`
-	}
-	_ = json.Unmarshal(out, &parsed)
-	if parsed.OK {
+	return ents, plain
+}
+
+func gogramEdit(chatID int64, msgID int32, htmlText string, markup telegram.ReplyMarkup) error {
+	if Bot == nil || chatID == 0 || msgID == 0 {
 		return nil
 	}
-	desc := parsed.Description
-	if desc == "" {
-		desc = string(out)
+	ents, plain := formatCaption(htmlText)
+	_, err := Bot.EditMessage(chatID, msgID, plain, &telegram.SendOptions{
+		Entities:    ents,
+		ReplyMarkup: markup,
+	})
+	if isNotModified(err) {
+		return nil
 	}
-	return fmt.Errorf("%s", desc)
+	return err
 }
 
 func sendHTML(client *telegram.Client, chat any, content string, markup telegram.ReplyMarkup) (*telegram.NewMessage, error) {
@@ -421,13 +213,7 @@ func editHTML(msg *telegram.NewMessage, content string, markup telegram.ReplyMar
 		return nil
 	}
 	_, raw := extractPhoto(content)
-	text := telegramHTML(raw)
-	chatID := msgBotChatID(msg)
-	err := botAPIEdit(chatID, msg.ID, text, markup, true)
-	if err == nil || isNotModified(err) {
-		return nil
-	}
-	return botAPIEdit(chatID, msg.ID, text, markup, false)
+	return gogramEdit(msgBotChatID(msg), msg.ID, raw, markup)
 }
 
 func editMenu(cb *telegram.CallbackQuery, content string, markup telegram.ReplyMarkup) error {
@@ -439,16 +225,11 @@ func editMenu(cb *telegram.CallbackQuery, content string, markup telegram.ReplyM
 		return nil
 	}
 	_, raw := extractPhoto(content)
-	text := telegramHTML(raw)
 	chatID := cb.ChatID
 	if chatID == 0 {
 		chatID = msgBotChatID(msg)
 	}
-	err := botAPIEdit(chatID, msg.ID, text, markup, true)
-	if err == nil || isNotModified(err) {
-		return nil
-	}
-	return botAPIEdit(chatID, msg.ID, text, markup, false)
+	return gogramEdit(chatID, msg.ID, raw, markup)
 }
 
 func mixedKeyboard(rows [][][2]string) telegram.ReplyMarkup {
