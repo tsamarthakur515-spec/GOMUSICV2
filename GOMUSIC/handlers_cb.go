@@ -1,17 +1,43 @@
 package main
 
 import (
+	"fmt"
 	"log"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/amarnathcjd/gogram/telegram"
 )
 
+var (
+	cbOnce   sync.Map
+	cbOnceMu sync.Mutex
+)
+
 func handleCallback(m *telegram.NewMessage) error { return nil }
+
+func alreadyHandledCallback(cb *telegram.CallbackQuery) bool {
+	if cb == nil {
+		return true
+	}
+	key := fmt.Sprintf("%d:%d:%s", cb.ChatID, cb.MsgID, string(cb.Data))
+	cbOnceMu.Lock()
+	defer cbOnceMu.Unlock()
+	if t, ok := cbOnce.Load(key); ok {
+		if time.Since(t.(time.Time)) < 2*time.Second {
+			return true
+		}
+	}
+	cbOnce.Store(key, time.Now())
+	return false
+}
 
 func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 	if cb == nil || cb.Sender == nil {
+		return nil
+	}
+	if alreadyHandledCallback(cb) {
 		return nil
 	}
 	if isUserBlockedDB(cb.Sender.ID) {
