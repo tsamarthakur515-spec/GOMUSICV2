@@ -1,14 +1,10 @@
 package main
 
-import (
-	"log"
-
-	"github.com/amarnathcjd/gogram/telegram"
-)
+import "log"
 
 func registerCallbackFallback() {
-	Bot.On("callback:*", func(cb *telegram.CallbackQuery) error {
-		return handleCallbackQuery(cb)
-	})
+	// handleCallbackQuery is already registered in registerHandlers.
+	// A second Bot.On(callback) made every menu edit run twice and
+	// the second pass dropped the blockquote.
 	log.Println("Loaded module: callbacks")
 }
