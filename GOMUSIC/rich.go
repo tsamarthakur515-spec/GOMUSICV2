@@ -219,16 +219,16 @@ func botAPIEdit(chatID int64, msgID int32, htmlText string, markup telegram.Repl
 	}
 	method := "editMessageText"
 	body := map[string]any{
-		"chat_id":                  chatID,
-		"message_id":               msgID,
-		"parse_mode":               "HTML",
-		"disable_web_page_preview": true,
+		"chat_id":    chatID,
+		"message_id": msgID,
+		"parse_mode": "HTML",
 	}
 	if caption {
 		method = "editMessageCaption"
 		body["caption"] = htmlText
 	} else {
 		body["text"] = htmlText
+		body["disable_web_page_preview"] = true
 	}
 	if kb := replyMarkupToAPI(markup); kb != nil {
 		body["reply_markup"] = kb
@@ -282,9 +282,21 @@ func editHTML(msg *telegram.NewMessage, content string, markup telegram.ReplyMar
 	text := telegramHTML(raw)
 	chatID := msgBotChatID(msg)
 
-	// Same order as PANDA-MUSICV4 _edit_menu:
-	// edit_text first, then edit_caption. Both with parse_mode HTML.
-	// Bot API keeps <blockquote expandable> on caption edits; MTProto often drops it.
+	// Start/help/about/player are photo messages. Caption-first like a working
+	// edit_caption. Do not MTProto-edit afterwards — that strips blockquote.
+	hasMedia := msg.IsMedia() || msg.Photo() != nil || msg.Media() != nil
+	if hasMedia {
+		err := botAPIEdit(chatID, msg.ID, text, markup, true)
+		if err == nil || isNotModified(err) {
+			return nil
+		}
+		err = botAPIEdit(chatID, msg.ID, text, markup, false)
+		if err == nil || isNotModified(err) {
+			return nil
+		}
+		return err
+	}
+
 	err := botAPIEdit(chatID, msg.ID, text, markup, false)
 	if err == nil || isNotModified(err) {
 		return nil
@@ -292,19 +304,6 @@ func editHTML(msg *telegram.NewMessage, content string, markup telegram.ReplyMar
 	err = botAPIEdit(chatID, msg.ID, text, markup, true)
 	if err == nil || isNotModified(err) {
 		return nil
-	}
-
-	if msg.Client != nil {
-		ents, plain := msg.Client.FormatMessage(text, "HTML")
-		_, err2 := msg.Client.EditMessage(chatID, msg.ID, plain, &telegram.SendOptions{
-			ParseMode:   "HTML",
-			Entities:    ents,
-			ReplyMarkup: markup,
-		})
-		if err2 == nil || isNotModified(err2) {
-			return nil
-		}
-		return err2
 	}
 	return err
 }
