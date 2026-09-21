@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"math/rand"
 	"strings"
 	"time"
 
@@ -93,36 +92,23 @@ func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 		}
 	case "about_menu":
 		_, _ = cb.Answer("")
-		photo := StartPhotos[rand.Intn(len(StartPhotos))]
-		if msg != nil {
-			_ = editHTML(msg, richImg(photo)+aboutCaption(), aboutKB())
-		}
+		_ = editMenu(cb, aboutCaption(), aboutKB())
 	case "go_back":
 		_, _ = cb.Answer("")
 		uid := cb.Sender.ID
 		name := sanitizeDisplayName(cb.Sender.FirstName)
-		photo := StartPhotos[rand.Intn(len(StartPhotos))]
-		if msg != nil {
-			_ = editHTML(msg, richImg(photo)+startCaption(uid, name), startHomeKB())
-		}
+		_ = editMenu(cb, startCaption(uid, name), startHomeKB())
 	case "show_help":
 		_, _ = cb.Answer("")
 		uid := cb.Sender.ID
 		name := sanitizeDisplayName(cb.Sender.FirstName)
-		photo := StartPhotos[rand.Intn(len(StartPhotos))]
-		if msg != nil {
-			_ = editHTML(msg, richImg(photo)+helpListCaption(uid, name), helpHomeKB())
-		}
+		_ = editMenu(cb, helpListCaption(uid, name), helpHomeKB())
 	default:
 		if strings.HasPrefix(data, "help_") {
 			_, _ = cb.Answer("")
 			if h, ok := helpTexts[data]; ok {
-				photo := StartPhotos[rand.Intn(len(StartPhotos))]
 				body := smallcaps(h.title) + "\n\n" + smallcaps(h.desc) + "\n\n" + richTable([]string{"command", "description"}, h.rows)
-				text := richImg(photo) + wrapBQ(body)
-				if msg != nil {
-					_ = editHTML(msg, text, backKB())
-				}
+				_ = editMenu(cb, wrapBQ(body), backKB())
 			}
 		}
 	}
