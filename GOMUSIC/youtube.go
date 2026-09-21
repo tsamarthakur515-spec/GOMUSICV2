@@ -27,6 +27,12 @@ type ytItem struct {
 	Link, Title, Duration, Thumbnail string
 }
 
+type streamSrc struct {
+	Audio string
+	Video string
+	File  string
+}
+
 func extractVideoID(raw string) string {
 	raw = strings.TrimSpace(raw)
 	if m := ytIDRe.FindStringSubmatch(raw); len(m) > 1 {
@@ -219,6 +225,58 @@ func searchYouTubeHTML(query string) (ytItem, error) {
 	return ytItem{Link: link, Title: title, Duration: "0:00", Thumbnail: thumbFor(link, "")}, nil
 }
 
+func ytdlpBaseArgs() []string {
+	args := []string{
+		"--no-warnings", "--no-check-certificates", "--no-playlist",
+		"--extractor-args", "youtube:player_client=android_music,mweb",
+	}
+	if st, err := os.Stat("cookies.txt"); err == nil && st.Size() > 10 {
+		args = append(args, "--cookies", "cookies.txt")
+	}
+	return args
+}
+
+func resolveDirectURL(raw string, video bool) (streamSrc, error) {
+	if st, err := os.Stat(raw); err == nil && !st.IsDir() && st.Size() > 1024 {
+		return streamSrc{File: raw, Audio: raw, Video: raw}, nil
+	}
+	vid := extractVideoID(raw)
+	link := raw
+	if len(vid) == 11 {
+		link = "https://www.youtube.com/watch?v=" + vid
+	}
+	format := "bestaudio[ext=m4a]/bestaudio/best"
+	if video {
+		format = "best[height<=480][ext=mp4]/best[height<=480]/best"
+	}
+	args := append(ytdlpBaseArgs(), "-f", format, "-g", "--max-downloads", "1", link)
+	cmd := exec.Command("yt-dlp", args...)
+	out, err := cmd.CombinedOutput()
+	if err == nil {
+		lines := []string{}
+		for _, line := range strings.Split(string(out), "\n") {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
+				lines = append(lines, line)
+			}
+		}
+		if len(lines) == 1 {
+			return streamSrc{Audio: lines[0], Video: lines[0]}, nil
+		}
+		if len(lines) >= 2 {
+			return streamSrc{Video: lines[0], Audio: lines[1]}, nil
+		}
+	}
+	path, derr := resolveStream(raw, video)
+	if derr != nil {
+		if err != nil {
+			return streamSrc{}, fmt.Errorf("stream url: %v; download: %v", err, derr)
+		}
+		return streamSrc{}, derr
+	}
+	return streamSrc{File: path, Audio: path, Video: path}, nil
+}
+
 func resolveStream(raw string, video bool) (string, error) {
 	if st, err := os.Stat(raw); err == nil && !st.IsDir() {
 		return raw, nil
@@ -320,10 +378,7 @@ func downloadViaYTDLP(videoID string, video bool, dest string) (string, error) {
 	if video {
 		outTmpl = strings.TrimSuffix(dest, filepath.Ext(dest)) + ".%(ext)s"
 	}
-	args := []string{"-o", outTmpl, "--no-warnings", "--no-part"}
-	if st, err := os.Stat("cookies.txt"); err == nil && st.Size() > 10 {
-		args = append(args, "--cookies", "cookies.txt")
-	}
+	args := append(ytdlpBaseArgs(), "-o", outTmpl, "--no-part")
 	if video {
 		args = append(args, "-f", "best[height<=480]/best")
 	} else {
@@ -356,7 +411,7 @@ func downloadViaYTDLP(videoID string, video bool, dest string) (string, error) {
 }
 
 func deleteFile(path string) {
-	if path != "" {
+	if path != "" && !isHTTP(path) {
 		_ = os.Remove(path)
 	}
 }
