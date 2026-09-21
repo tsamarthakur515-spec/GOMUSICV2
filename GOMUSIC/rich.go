@@ -270,29 +270,27 @@ func editHTML(msg *telegram.NewMessage, content string, markup telegram.ReplyMar
 }
 
 func editMenu(cb *telegram.CallbackQuery, content string, markup telegram.ReplyMarkup) error {
-    if cb == nil {
-        return nil
-    }
-
-    msg, _ := cb.GetMessage()
-    chatID := cb.ChatID
-    var msgID int32
-    if msg != nil {
-        msgID = msg.ID
-        if chatID == 0 {
-            chatID = msgBotChatID(msg)
-        }
-    }
-
-    // Strip any <img> tag from content - caption edit doesn't change the photo,
-    // so we only pass the text portion with proper entities.
-    _, raw := extractPhoto(content)
-    raw = telegramHTML(raw)
-    err := editPhotoCaption(chatID, msgID, msg, raw, markup)
-    if isNotModified(err) {
-        return nil
-    }
-    return err
+	if cb == nil {
+		return nil
+	}
+	msg, _ := cb.GetMessage()
+	chatID := cb.ChatID
+	var msgID int32
+	if msg != nil {
+		msgID = msg.ID
+		if chatID == 0 {
+			chatID = msgBotChatID(msg)
+		}
+	}
+	content = withMenuPhoto(content, chatID, msgID)
+	_, err := sendHTML(Bot, chatID, content, markup)
+	if err != nil {
+		return err
+	}
+	if msg != nil {
+		_, _ = msg.Delete()
+	}
+	return nil
 }
 
 func mixedKeyboard(rows [][][2]string) telegram.ReplyMarkup {
