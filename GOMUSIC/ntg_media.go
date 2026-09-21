@@ -58,11 +58,16 @@ func buildMedia(path string, video bool, seekSec int) ntgcalls.MediaDescription 
 	if seekSec > 0 {
 		seek = fmt.Sprintf("-ss %d ", seekSec)
 	}
+	// nostdin + apad keeps the last second from being cut when the PCM pipe closes.
+	audioCmd := fmt.Sprintf(
+		"ffmpeg -nostdin -hide_banner -fflags +genpts+discardcorrupt -err_detect ignore_err %s-i %s -vn -af apad=pad_dur=1.2 -f s16le -ac 2 -ar 48000 -v quiet pipe:1",
+		seek, q,
+	)
 	audio := &ntgcalls.AudioDescription{
 		MediaSource:  ntgcalls.MediaSourceShell,
 		SampleRate:   48000,
 		ChannelCount: 2,
-		Input:        fmt.Sprintf("ffmpeg %s-i %s -f s16le -ac 2 -ar 48000 -v quiet pipe:1", seek, q),
+		Input:        audioCmd,
 	}
 	if !video {
 		return ntgcalls.MediaDescription{Microphone: audio}
@@ -72,25 +77,13 @@ func buildMedia(path string, video bool, seekSec int) ntgcalls.MediaDescription 
 		MediaSource: ntgcalls.MediaSourceShell,
 		Width:       int16(w),
 		Height:      int16(h),
-		Fps:         30,
-		Input:       fmt.Sprintf("ffmpeg %s-i %s -f rawvideo -r 30 -pix_fmt yuv420p -vf scale=%d:%d -v quiet pipe:1", seek, q, w, h),
+		Fps:         24,
+		Input: fmt.Sprintf(
+			"ffmpeg -nostdin -hide_banner -fflags +genpts+discardcorrupt %s-i %s -an -f rawvideo -r 24 -pix_fmt yuv420p -vf scale=%d:%d -v quiet pipe:1",
+			seek, q, w, h,
+		),
 	}
 	return ntgcalls.MediaDescription{Microphone: audio, Camera: cam}
-}
-
-func buildMediaFromURL(youtubeURL string) ntgcalls.MediaDescription {
-	q := fmt.Sprintf("%q", youtubeURL)
-	ytdlpCmd := fmt.Sprintf(
-		"yt-dlp --no-warnings --no-check-certificates --extractor-args youtube:player_client=mweb,android_music -f bestaudio/best -o - %s | ffmpeg -i pipe:0 -f s16le -ac 2 -ar 48000 -v quiet pipe:1",
-		q,
-	)
-	audio := &ntgcalls.AudioDescription{
-		MediaSource:  ntgcalls.MediaSourceShell,
-		SampleRate:   48000,
-		ChannelCount: 2,
-		Input:        ytdlpCmd,
-	}
-	return ntgcalls.MediaDescription{Microphone: audio}
 }
 
 func startNTGStreamWithMedia(chatID int64, media ntgcalls.MediaDescription, video bool) error {
@@ -98,6 +91,7 @@ func startNTGStreamWithMedia(chatID int64, media ntgcalls.MediaDescription, vide
 		return fmt.Errorf("ntgcalls not ready")
 	}
 	if Calls.Calls()[chatID] != nil {
+		bumpStream(chatID)
 		return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
 	}
 	return startNTGStreamPrebuilt(chatID, media, video)
@@ -108,7 +102,7 @@ func startNTGStreamPrebuilt(chatID int64, media ntgcalls.MediaDescription, video
 		return fmt.Errorf("ntgcalls not ready")
 	}
 	var last error
-	for attempt := 1; attempt <= 4; attempt++ {
+	for attempt := 1; attempt <= 3; attempt++ {
 		inputCall, err := resolveActiveCall(chatID)
 		if err != nil {
 			if e := ensureVC(chatID); e == nil {
@@ -116,21 +110,25 @@ func startNTGStreamPrebuilt(chatID int64, media ntgcalls.MediaDescription, video
 			}
 			if err != nil {
 				last = err
-				time.Sleep(time.Duration(attempt) * 2 * time.Second)
+				time.Sleep(time.Duration(attempt) * time.Second)
 				continue
 			}
+		}
+		if Calls.Calls()[chatID] != nil {
+			_ = Calls.Stop(chatID)
+			time.Sleep(400 * time.Millisecond)
 		}
 		local, err := Calls.CreateCall(chatID)
 		if err != nil {
 			_ = Calls.Stop(chatID)
 			last = err
-			time.Sleep(2 * time.Second)
+			time.Sleep(time.Second)
 			continue
 		}
 		if err := Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media); err != nil {
 			_ = Calls.Stop(chatID)
 			last = err
-			time.Sleep(2 * time.Second)
+			time.Sleep(time.Second)
 			continue
 		}
 		me, err := Assistant.GetMe()
@@ -152,8 +150,8 @@ func startNTGStreamPrebuilt(chatID int64, media ntgcalls.MediaDescription, video
 		if err != nil {
 			_ = Calls.Stop(chatID)
 			last = err
-			if shouldRetryJoin(err) && attempt < 4 {
-				time.Sleep(time.Duration(attempt+1) * 2 * time.Second)
+			if shouldRetryJoin(err) && attempt < 3 {
+				time.Sleep(time.Duration(attempt+1) * time.Second)
 				continue
 			}
 			return err
@@ -169,11 +167,12 @@ func startNTGStreamPrebuilt(chatID int64, media ntgcalls.MediaDescription, video
 		if err := Calls.Connect(chatID, remote, false); err != nil {
 			_ = Calls.Stop(chatID)
 			last = err
-			time.Sleep(2 * time.Second)
+			time.Sleep(time.Second)
 			continue
 		}
 		activeCalls[chatID] = inputCall
 		callIsVideo[chatID] = video
+		bumpStream(chatID)
 		return nil
 	}
 	if last == nil {
