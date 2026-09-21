@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"html"
+	"log"
 	"reflect"
 	"regexp"
 	"sort"
@@ -256,6 +257,7 @@ func sendHTML(client *telegram.Client, chat any, content string, markup telegram
 		msg, err := client.SendMedia(chat, photo, opts)
 		if err == nil && msg != nil {
 			rememberMenuPic(msgBotChatID(msg), msg.ID, photo)
+			log.Printf("menu media send chat=%d msg=%d blockquote=%v entities=%s", msgBotChatID(msg), msg.ID, hasBlockquote(msgEntities(msg)), entityDump(msgEntities(msg)))
 			return msg, nil
 		}
 	}
@@ -266,6 +268,9 @@ func sendHTML(client *telegram.Client, chat any, content string, markup telegram
 	})
 	if err != nil {
 		return client.SendMessage(chat, plain, &telegram.SendOptions{ReplyMarkup: markup})
+	}
+	if msg != nil {
+		log.Printf("message send chat=%d msg=%d blockquote=%v entities=%s", msgBotChatID(msg), msg.ID, hasBlockquote(msgEntities(msg)), entityDump(msgEntities(msg)))
 	}
 	return msg, nil
 }
@@ -300,12 +305,16 @@ func editMenu(cb *telegram.CallbackQuery, content string, markup telegram.ReplyM
 	// entities in media captions, which caption-only edits can drop.
 	if photoURL := menuPhotoURL(chatID, msg.ID); photoURL != "" {
 		ents, plain := captionEntities(raw)
-		_, err = Bot.EditMessage(chatID, msg.ID, plain, &telegram.SendOptions{
+		edited, editErr := Bot.EditMessage(chatID, msg.ID, plain, &telegram.SendOptions{
 			ParseMode:   "",
 			Entities:    ents,
 			Media:       &telegram.InputMediaPhotoExternal{URL: photoURL},
 			ReplyMarkup: markup,
 		})
+		err = editErr
+		if edited != nil {
+			log.Printf("menu media edit chat=%d msg=%d blockquote=%v entities=%s", chatID, msg.ID, hasBlockquote(msgEntities(edited)), entityDump(msgEntities(edited)))
+		}
 	} else {
 		// Text messages and menus created before photo tracking was enabled
 		// still use the safe caption-only path.
@@ -329,10 +338,13 @@ func styleMenuButton(button telegram.KeyboardInlineButton, colour string) telegr
 	switch strings.ToLower(colour) {
 	case buttonRed:
 		button.Style = &telegram.KeyboardButtonStyle{BgDanger: true}
+		button.Text = "🔴 " + button.Text
 	case buttonBlue:
 		button.Style = &telegram.KeyboardButtonStyle{BgPrimary: true}
+		button.Text = "🔵 " + button.Text
 	case buttonGreen:
 		button.Style = &telegram.KeyboardButtonStyle{BgSuccess: true}
+		button.Text = "🟢 " + button.Text
 	}
 	return button
 }
