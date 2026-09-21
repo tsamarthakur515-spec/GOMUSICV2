@@ -1,9 +1,11 @@
 package main
 
 import (
+	"fmt"
 	"html"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode/utf16"
 
 	"github.com/amarnathcjd/gogram/telegram"
@@ -12,7 +14,36 @@ import (
 var (
 	reImgSrc = regexp.MustCompile(`(?is)<img[^>]*src=["']([^"']+)["'][^>]*>`)
 	reTgBtn  = regexp.MustCompile(`(?is)<tg-button[^>]*>.*?</tg-button>`)
+	menuPic  sync.Map
 )
+
+func menuPicKey(chatID int64, msgID int32) string {
+	return fmt.Sprintf("%d:%d", chatID, msgID)
+}
+
+func rememberMenuPic(chatID int64, msgID int32, photo string) {
+	if photo != "" && chatID != 0 && msgID != 0 {
+		menuPic.Store(menuPicKey(chatID, msgID), photo)
+	}
+}
+
+func lookupMenuPic(chatID int64, msgID int32, msg *telegram.NewMessage) any {
+	if msg != nil {
+		if p := msg.Photo(); p != nil {
+			return p
+		}
+		if m := msg.Media(); m != nil {
+			return m
+		}
+	}
+	if v, ok := menuPic.Load(menuPicKey(chatID, msgID)); ok {
+		return v
+	}
+	if len(StartPhotos) > 0 {
+		return StartPhotos[0]
+	}
+	return nil
+}
 
 func richEsc(v string) string { return html.EscapeString(v) }
 
@@ -173,14 +204,16 @@ func captionEntities(htmlText string) ([]telegram.MessageEntity, string) {
 	return ents, plain
 }
 
-func editPhotoCaption(chatID int64, msgID int32, _ *telegram.NewMessage, htmlText string, markup telegram.ReplyMarkup) error {
+func editPhotoCaption(chatID int64, msgID int32, msg *telegram.NewMessage, htmlText string, markup telegram.ReplyMarkup) error {
 	htmlText = telegramHTML(htmlText)
 	ents, _ := captionEntities(htmlText)
-	_, err := Bot.EditMessage(chatID, msgID, htmlText, &telegram.SendOptions{
+	opts := &telegram.SendOptions{
 		ParseMode:   "HTML",
 		Entities:    ents,
 		ReplyMarkup: markup,
-	})
+		Media:       lookupMenuPic(chatID, msgID, msg),
+	}
+	_, err := Bot.EditMessage(chatID, msgID, htmlText, opts)
 	if isNotModified(err) {
 		return nil
 	}
@@ -192,7 +225,8 @@ func sendHTML(client *telegram.Client, chat any, content string, markup telegram
 	text := telegramHTML(raw)
 	if photo != "" {
 		msg, err := client.SendMedia(chat, photo, htmlMediaOpts(text, markup))
-		if err == nil {
+		if err == nil && msg != nil {
+			rememberMenuPic(msgBotChatID(msg), msg.ID, photo)
 			return msg, nil
 		}
 	}
@@ -207,7 +241,10 @@ func editHTML(msg *telegram.NewMessage, content string, markup telegram.ReplyMar
 	if msg == nil {
 		return nil
 	}
-	_, raw := extractPhoto(content)
+	photo, raw := extractPhoto(content)
+	if photo != "" {
+		rememberMenuPic(msgBotChatID(msg), msg.ID, photo)
+	}
 	return editPhotoCaption(msgBotChatID(msg), msg.ID, msg, raw, markup)
 }
 
@@ -219,10 +256,13 @@ func editMenu(cb *telegram.CallbackQuery, content string, markup telegram.ReplyM
 	if msg == nil {
 		return nil
 	}
-	_, raw := extractPhoto(content)
+	photo, raw := extractPhoto(content)
 	chatID := cb.ChatID
 	if chatID == 0 {
 		chatID = msgBotChatID(msg)
+	}
+	if photo != "" {
+		rememberMenuPic(chatID, msg.ID, photo)
 	}
 	return editPhotoCaption(chatID, msg.ID, msg, raw, markup)
 }
