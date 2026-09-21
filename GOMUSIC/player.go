@@ -83,60 +83,38 @@ func playSong(chatID int64, message *telegram.NewMessage, song Song) error {
 		message, _ = sendHTML(Bot, chatID, loading, nil)
 	}
 
-	isYT := strings.Contains(song.URL, "youtube.com") || strings.Contains(song.URL, "youtu.be")
 	if t := oembedTitle(extractVideoID(song.URL)); t != "" && (song.Title == "" || song.Title == "YouTube Video") {
 		song.Title = t
 	}
 	setSeekState(chatID, 0)
-	var startErr error
-	if isYT && !song.Video {
-		ntgMedia := buildMediaFromURL(song.URL)
-		startErr = startNTGStreamWithMedia(chatID, ntgMedia, false)
-		if startErr != nil {
-			goto fallback
-		}
-		go func() {
-			if secs := ytDuration(extractVideoID(song.URL)); secs > 2 {
-				song.DurationSeconds = int(secs)
-				song.Duration = formatClock(secs)
-			}
-		}()
-		goto streamStarted
-	}
 
-fallback:
-	{
-		mediaPath, err := resolveStream(song.URL, song.Video)
-		if err != nil {
-			removeFromQueue(chatID, 0)
-			_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("download failed")+"\n<code>"+richEsc(err.Error())+"</code>"), nil)
-			return err
-		}
-		if song.Video && !fileHasVideo(mediaPath) {
-			removeFromQueue(chatID, 0)
-			_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("vplay failed")+"\n"+smallcaps("api gave audio file, not video stream.")), nil)
-			return fmt.Errorf("no video track in %s", mediaPath)
-		}
-		if !song.Video {
-			if p, e := maybeApplyEffects(chatID, mediaPath); e == nil {
-				mediaPath = p
-			}
-		}
-		if secs := probeDuration(mediaPath); secs > 2 {
-			song.DurationSeconds = int(secs)
-			song.Duration = formatClock(secs)
-		}
-		setCurrentPath(chatID, mediaPath)
-		ntgMedia := buildMedia(mediaPath, song.Video, 0)
-		startErr = startNTGStreamWithMedia(chatID, ntgMedia, song.Video)
+	mediaPath, err := resolveStream(song.URL, song.Video)
+	if err != nil {
+		removeFromQueue(chatID, 0)
+		_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("download failed")+"\n<code>"+richEsc(err.Error())+"</code>"), nil)
+		return err
 	}
-
-streamStarted:
+	if song.Video && !fileHasVideo(mediaPath) {
+		removeFromQueue(chatID, 0)
+		_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("vplay failed")+"\n"+smallcaps("api gave audio file, not video stream.")), nil)
+		return fmt.Errorf("no video track in %s", mediaPath)
+	}
+	if !song.Video {
+		if p, e := maybeApplyEffects(chatID, mediaPath); e == nil {
+			mediaPath = p
+		}
+	}
+	if secs := probeDuration(mediaPath); secs > 2 {
+		song.DurationSeconds = int(secs)
+		song.Duration = formatClock(secs)
+	}
+	setCurrentPath(chatID, mediaPath)
+	startErr := startNTGStreamWithMedia(chatID, buildMedia(mediaPath, song.Video, 0), song.Video)
 	if startErr != nil {
 		low := strings.ToLower(startErr.Error())
 		if strings.Contains(low, "no active") || strings.Contains(low, "groupcall") {
 			_ = ensureVC(chatID)
-			startErr = startNTGStream(chatID, "", song.Video, 0)
+			startErr = startNTGStream(chatID, mediaPath, song.Video, 0)
 		}
 		if startErr != nil {
 			removeFromQueue(chatID, 0)
