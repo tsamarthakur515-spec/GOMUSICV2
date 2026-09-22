@@ -76,7 +76,8 @@ func showQuotedMenu(cb *telegram.CallbackQuery, inner string, rows [][]InlineBtn
 	if !hasBlockquote(ents) && strings.TrimSpace(plain) != "" {
 		ents = append(ents, &telegram.MessageEntityBlockquote{
 			Collapsed: true,
-			offsetOf:  0,
+			Offset:    0,
+			Length:    int32(utf16Count(plain)),
 		})
 	}
 	markup := gogramMarkup(rows)
