@@ -40,7 +40,7 @@ func gogramMarkup(rows [][]InlineBtn) telegram.ReplyMarkup {
 }
 
 func startHTMLCaption(inner string) string {
-	return "<blockquote expandable>" + strings.TrimSpace(inner) + "</blockquote>"
+	return "<blockquote>" + strings.TrimSpace(inner) + "</blockquote>"
 }
 
 func sendQuotedPhoto(chatID int64, inner string, rows [][]InlineBtn) (*telegram.NewMessage, error) {
@@ -75,7 +75,7 @@ func showQuotedMenu(cb *telegram.CallbackQuery, inner string, rows [][]InlineBtn
 	ents, plain := Bot.FormatMessage(caption, "HTML")
 	if !hasBlockquote(ents) && strings.TrimSpace(plain) != "" {
 		ents = append(ents, &telegram.MessageEntityBlockquote{
-			Collapsed: true,
+			Collapsed: false,
 			Offset:    0,
 			Length:    int32(utf16Count(plain)),
 		})
