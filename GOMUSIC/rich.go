@@ -303,36 +303,21 @@ func editMenu(cb *telegram.CallbackQuery, content string, markup telegram.ReplyM
 }
 
 func styleMenuButton(button telegram.KeyboardInlineButton, colour string) telegram.KeyboardInlineButton {
-	switch strings.ToLower(colour) {
-	case "red":
-		button.Style = &telegram.KeyboardButtonStyle{BgDanger: true}
-	case "green":
-		button.Style = &telegram.KeyboardButtonStyle{BgSuccess: true}
-	default:
-		button.Style = &telegram.KeyboardButtonStyle{BgPrimary: true}
-	}
 	return button
 }
 
 func mixedKeyboard(rows [][][2]string) telegram.ReplyMarkup {
 	kb := telegram.NewKeyboard()
-	for rowIndex, row := range rows {
+	for _, row := range rows {
 		btns := make([]telegram.KeyboardInlineButton, 0, len(row))
-		for buttonIndex, b := range row {
-			colour := "blue"
-			switch (rowIndex + buttonIndex) % 3 {
-			case 0:
-				colour = "red"
-			case 2:
-				colour = "green"
-			}
+		for _, b := range row {
 			var button telegram.KeyboardInlineButton
 			if strings.HasPrefix(b[1], "http://") || strings.HasPrefix(b[1], "https://") || strings.HasPrefix(b[1], "tg://") {
 				button = telegram.Button.URL(b[0], b[1])
 			} else {
 				button = telegram.Button.Data(b[0], b[1])
 			}
-			btns = append(btns, styleMenuButton(button, colour))
+			btns = append(btns, button)
 		}
 		kb.AddRow(btns...)
 	}
