@@ -81,6 +81,21 @@ func peekNext(chatID int64) *Song {
 	return &s
 }
 
+func moveAfterCurrent(chatID int64, index int) bool {
+	queueMu.Lock()
+	defer queueMu.Unlock()
+	q := chatQueues[chatID]
+	if index <= 0 || index >= len(q) {
+		return false
+	}
+	item := q[index]
+	q = append(q[:index], q[index+1:]...)
+	n := []Song{q[0], item}
+	n = append(n, q[1:]...)
+	chatQueues[chatID] = n
+	return true
+}
+
 func clearQueue(chatID int64) []Song {
 	queueMu.Lock()
 	defer queueMu.Unlock()
@@ -97,4 +112,17 @@ func queueSize(chatID int64) int {
 
 func isEmpty(chatID int64) bool {
 	return queueSize(chatID) == 0
+}
+
+func isBusy(chatID int64) bool {
+	if queueSize(chatID) > 0 {
+		return true
+	}
+	if Calls != nil {
+		if _, ok := Calls.Calls()[chatID]; ok && Calls.Calls()[chatID] != nil {
+			return true
+		}
+	}
+	_, ok := activeCalls[chatID]
+	return ok
 }
