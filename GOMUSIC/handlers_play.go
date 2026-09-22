@@ -33,20 +33,26 @@ func processPlayCommand(m *telegram.NewMessage, video bool) error {
 
 func processPlay(m *telegram.NewMessage, query string, video bool) error {
 	chatID := m.ChatID()
-	pm, _ := sendHTML(Bot, chatID, wrapBQ(smallcaps("processing...")), nil)
-	ok, banned := assistantIn(chatID)
-	if banned {
-		_ = editHTML(pm, wrapBQ(smallcaps("assistant banned")+"\n"+smallcaps("unban")+" @"+assistantUsername), nil)
-		return nil
-	}
-	if !ok {
-		_ = editHTML(pm, wrapBQ(smallcaps("assistant is joining...")), nil)
-		if !tryJoinAssistant(chatID, pm) {
+	already := isBusy(chatID)
+	var pm *telegram.NewMessage
+	if already {
+		pm, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("adding to queue...")), nil)
+	} else {
+		pm, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("processing...")), nil)
+		ok, banned := assistantIn(chatID)
+		if banned {
+			_ = editHTML(pm, wrapBQ(smallcaps("assistant banned")+"\n"+smallcaps("unban")+" @"+assistantUsername), nil)
 			return nil
 		}
+		if !ok {
+			_ = editHTML(pm, wrapBQ(smallcaps("assistant is joining...")), nil)
+			if !tryJoinAssistant(chatID, pm) {
+				return nil
+			}
+		}
+		_ = promoteAssistant(chatID)
+		go func() { _ = ensureVC(chatID) }()
 	}
-	_ = promoteAssistant(chatID)
-	go func() { _ = ensureVC(chatID) }()
 	if strings.Contains(query, "youtu.be/") {
 		if parts := strings.Split(query, "youtu.be/"); len(parts) > 1 {
 			id := strings.Split(strings.Split(parts[1], "?")[0], "&")[0]
@@ -65,7 +71,7 @@ func processPlay(m *telegram.NewMessage, query string, video bool) error {
 	req := userNameOf(m)
 	reqID := userIDOf(m)
 	if len(playlist) > 0 {
-		firstEmpty := queueSize(chatID) == 0
+		firstEmpty := !already && queueSize(chatID) == 0
 		for _, item := range playlist {
 			addToQueue(chatID, Song{URL: item.Link, Title: item.Title, Duration: isoToHuman(item.Duration), DurationSeconds: isoToSec(item.Duration), Requester: req, RequesterID: reqID, Thumbnail: item.Thumbnail, Video: video})
 		}
@@ -74,18 +80,36 @@ func processPlay(m *telegram.NewMessage, query string, video bool) error {
 				return playSong(chatID, pm, *first)
 			}
 		}
+		_ = editHTML(pm, wrapBQ(smallcaps("playlist queued")+"\n"+fmt.Sprintf("%d", len(playlist))+" "+smallcaps("tracks")), gogramMarkup(GetQueuedMarkup(1)))
 		return nil
 	}
 	song := Song{URL: urlStr, Title: title, Duration: isoToHuman(durISO), DurationSeconds: parseDur(durISO), Requester: req, RequesterID: reqID, Thumbnail: thumb, Video: video}
 	pos := addToQueue(chatID, song)
-	if pos == 1 {
+	if !already && pos == 1 {
 		return playSong(chatID, pm, song)
 	}
-	_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("added to queue")+"\n"+richEsc(title)), nil)
-	if pm != nil {
-		_, _ = pm.Delete()
-	}
+	body := smallcaps("added to queue") + "\n\n" +
+		smallcaps("title") + " : " + richEsc(shortTitle(title, 42)) + "\n" +
+		smallcaps("duration") + " : " + richEsc(isoToHuman(durISO)) + "\n" +
+		smallcaps("position") + " : " + fmt.Sprintf("%d", pos)
+	_ = editHTML(pm, wrapBQ(body), gogramMarkup(GetQueuedMarkup(pos-1)))
 	return nil
+}
+
+func skipCurrent(chatID int64) error {
+	bumpStream(chatID)
+	skipped := popCurrent(chatID)
+	if skipped != nil {
+		deleteFile(skipped.FilePath)
+	}
+	nxt := peekCurrent(chatID)
+	if nxt == nil {
+		if Calls != nil {
+			_ = Calls.Stop(chatID)
+		}
+		return fmt.Errorf("queue empty")
+	}
+	return playSong(chatID, nil, *nxt)
 }
 
 func assistantIn(chatID int64) (present bool, banned bool) {
@@ -223,20 +247,10 @@ func handleSkip(m *telegram.NewMessage) error {
 	if blocked(m) || m.IsPrivate() || !isAuthorized(m) {
 		return nil
 	}
-	chatID := m.ChatID()
-	bumpStream(chatID)
-	skipped := popCurrent(chatID)
-	_ = Calls.Stop(chatID)
-	time.Sleep(time.Second)
-	if skipped != nil {
-		deleteFile(skipped.FilePath)
+	if err := skipCurrent(m.ChatID()); err != nil {
+		_, _ = sendHTML(Bot, m.ChatID(), wrapBQ(smallcaps("queue empty")), nil)
+		return nil
 	}
-	nxt := peekCurrent(chatID)
-	if nxt != nil {
-		dm, _ := sendHTML(Bot, chatID, wrapBQ(smallcaps("next track")), nil)
-		return playSong(chatID, dm, *nxt)
-	}
-	_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("queue empty")), nil)
 	return nil
 }
 
@@ -256,6 +270,28 @@ func handleClear(m *telegram.NewMessage) error {
 	stopAutoplay(m.ChatID())
 	clearQueue(m.ChatID())
 	_, _ = sendHTML(Bot, m.ChatID(), wrapBQ(smallcaps("queue cleared")), nil)
+	return nil
+}
+
+func handleQueue(m *telegram.NewMessage) error {
+	if blocked(m) || m.IsPrivate() {
+		return nil
+	}
+	q := getQueue(m.ChatID())
+	if len(q) == 0 {
+		_, _ = sendHTML(Bot, m.ChatID(), wrapBQ(smallcaps("queue is empty")), nil)
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString(smallcaps("queue") + "\n\n")
+	for i, s := range q {
+		mark := smallcaps("next")
+		if i == 0 {
+			mark = smallcaps("now")
+		}
+		b.WriteString(fmt.Sprintf("%d. %s\n%s : %s\n", i+1, richEsc(shortTitle(s.Title, 36)), mark, richEsc(s.Duration)))
+	}
+	_, _ = sendHTML(Bot, m.ChatID(), wrapBQ(b.String()), gogramMarkup(GetQueuedMarkup(1)))
 	return nil
 }
 
