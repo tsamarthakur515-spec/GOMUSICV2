@@ -127,37 +127,6 @@ func pickStartPhoto() string {
 	return StartPhotos[rand.Intn(len(StartPhotos))]
 }
 
-func sendQuotedPhoto(chatID int64, inner string, markup telegram.ReplyMarkup) (*telegram.NewMessage, error) {
-	caption := "<blockquote expandable>" + strings.TrimSpace(inner) + "</blockquote>"
-	photo := pickStartPhoto()
-	if photo == "" {
-		return Bot.SendMessage(chatID, caption, &telegram.SendOptions{ParseMode: "HTML", ReplyMarkup: markup})
-	}
-	return Bot.SendMedia(chatID, photo, &telegram.MediaOptions{
-		Caption:     caption,
-		ParseMode:   "HTML",
-		ReplyMarkup: markup,
-	})
-}
-
-func showQuotedMenu(cb *telegram.CallbackQuery, inner string, markup telegram.ReplyMarkup) {
-	if cb == nil {
-		return
-	}
-	chatID := cb.ChatID
-	msg, _ := cb.GetMessage()
-	if chatID == 0 && msg != nil {
-		chatID = msg.ChatID()
-	}
-	_, err := sendQuotedPhoto(chatID, inner, markup)
-	if err != nil {
-		return
-	}
-	if msg != nil {
-		_, _ = msg.Delete()
-	}
-}
-
 func startInner(uid int64, name string) string {
 	mention := fmt.Sprintf("<a href=\"tg://user?id=%d\">%s</a>", uid, richEsc(name))
 	return smallcaps("hey") + " " + mention + "\n\n" +
