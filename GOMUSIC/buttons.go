@@ -36,6 +36,17 @@ func colourToStyle(colour string) string {
 	}
 }
 
+func colourDot(colour string) string {
+	switch strings.ToLower(colour) {
+	case ColourRed:
+		return "🔴 "
+	case ColourGreen:
+		return "🟢 "
+	default:
+		return "🔵 "
+	}
+}
+
 func urlBtn(text, url string) InlineBtn {
 	return InlineBtn{Text: text, URL: url}
 }
@@ -45,13 +56,13 @@ func dataBtn(text, cb string) InlineBtn {
 }
 
 func styleBtn(text, cb, colour string) InlineBtn {
-	b := dataBtn(text, cb)
+	b := dataBtn(colourDot(colour)+text, cb)
 	b.Colour = colour
 	return b
 }
 
 func styleURLBtn(text, url, colour string) InlineBtn {
-	b := urlBtn(text, url)
+	b := urlBtn(colourDot(colour)+text, url)
 	b.Colour = colour
 	return b
 }
