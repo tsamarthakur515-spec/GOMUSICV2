@@ -120,17 +120,54 @@ func aboutKB() telegram.ReplyMarkup {
 	})
 }
 
-func startCaption(uid int64, name string) string {
-	mention := fmt.Sprintf("<a href='tg://user?id=%d'>%s</a>", uid, richEsc(name))
-	body := smallcaps("hey") + " " + mention + "\n\n" +
+func pickStartPhoto() string {
+	if len(StartPhotos) == 0 {
+		return ""
+	}
+	return StartPhotos[rand.Intn(len(StartPhotos))]
+}
+
+func sendQuotedPhoto(chatID int64, inner string, markup telegram.ReplyMarkup) (*telegram.NewMessage, error) {
+	caption := "<blockquote expandable>" + strings.TrimSpace(inner) + "</blockquote>"
+	photo := pickStartPhoto()
+	if photo == "" {
+		return Bot.SendMessage(chatID, caption, &telegram.SendOptions{ParseMode: "HTML", ReplyMarkup: markup})
+	}
+	return Bot.SendMedia(chatID, photo, &telegram.MediaOptions{
+		Caption:     caption,
+		ParseMode:   "HTML",
+		ReplyMarkup: markup,
+	})
+}
+
+func showQuotedMenu(cb *telegram.CallbackQuery, inner string, markup telegram.ReplyMarkup) {
+	if cb == nil {
+		return
+	}
+	chatID := cb.ChatID
+	msg, _ := cb.GetMessage()
+	if chatID == 0 && msg != nil {
+		chatID = msg.ChatID()
+	}
+	_, err := sendQuotedPhoto(chatID, inner, markup)
+	if err != nil {
+		return
+	}
+	if msg != nil {
+		_, _ = msg.Delete()
+	}
+}
+
+func startInner(uid int64, name string) string {
+	mention := fmt.Sprintf("<a href=\"tg://user?id=%d\">%s</a>", uid, richEsc(name))
+	return smallcaps("hey") + " " + mention + "\n\n" +
 		smallcaps("i am a high quality fast music bot.") + "\n" +
 		smallcaps("add me to your group and enjoy audio / video streaming.") + "\n\n" +
 		smallcaps("use the buttons below.")
-	return wrapBQ(body)
 }
 
-func aboutCaption() string {
-	body := smallcaps("about") + "\n\n" +
+func aboutInner() string {
+	return smallcaps("about") + "\n\n" +
 		smallcaps("high quality telegram music bot.") + "\n" +
 		smallcaps("supports audio and video streaming.") + "\n" +
 		smallcaps("powered by go + gogram + ntgcalls.") + "\n\n" +
@@ -142,15 +179,19 @@ func aboutCaption() string {
 		smallcaps("player") + " : <code>ffmpeg + yt-dlp</code>\n" +
 		smallcaps("runtime") + " : <code>" + runtime.Version() + "</code>\n\n" +
 		smallcaps("add me in your group and start playing.")
-	return wrapBQ(body)
 }
 
-func helpListCaption(uid int64, name string) string {
-	mention := fmt.Sprintf("<a href='tg://user?id=%d'>%s</a>", uid, richEsc(name))
-	body := smallcaps("help menu") + "\n\n" +
+func helpInner(uid int64, name string) string {
+	mention := fmt.Sprintf("<a href=\"tg://user?id=%d\">%s</a>", uid, richEsc(name))
+	return smallcaps("help menu") + "\n\n" +
 		smallcaps("hey") + " " + mention + "\n" +
 		smallcaps("tap any command button below to see how to use it.")
-	return wrapBQ(body)
+}
+
+func startCaption(uid int64, name string) string { return wrapBQ(startInner(uid, name)) }
+func aboutCaption() string                       { return wrapBQ(aboutInner()) }
+func helpListCaption(uid int64, name string) string {
+	return wrapBQ(helpInner(uid, name))
 }
 
 func handleStart(m *telegram.NewMessage) error {
@@ -161,12 +202,10 @@ func handleStart(m *telegram.NewMessage) error {
 	uid := userIDOf(m)
 	name := userNameOf(m)
 	chatID := m.ChatID()
-	photo := StartPhotos[rand.Intn(len(StartPhotos))]
 	addServedUser(uid)
 	addServedChat(chatID)
 	if m.IsPrivate() {
-		caption := richImg(photo) + startCaption(uid, name)
-		_, _ = sendHTML(Bot, chatID, caption, startHomeKB())
+		_, _ = sendQuotedPhoto(chatID, startInner(uid, name), startHomeKB())
 		addBroadcastChat(chatID, "private")
 		return nil
 	}
@@ -174,12 +213,10 @@ func handleStart(m *telegram.NewMessage) error {
 	if m.Chat != nil {
 		chatTitle = m.Chat.Title
 	}
-	caption := richImg(photo) + wrapBQ(
-		smallcaps("hey")+" "+fmt.Sprintf("<a href='tg://user?id=%d'>%s</a>", uid, richEsc(name))+"\n\n"+
-			smallcaps("this is")+" <b>"+richEsc(BotName)+"</b>\n"+
-			smallcaps("thanks for adding me in")+" "+richEsc(chatTitle)+".",
-	)
-	_, _ = sendHTML(Bot, chatID, caption, mixedKeyboard([][][2]string{
+	inner := smallcaps("hey") + " " + fmt.Sprintf("<a href=\"tg://user?id=%d\">%s</a>", uid, richEsc(name)) + "\n\n" +
+		smallcaps("this is") + " <b>" + richEsc(BotName) + "</b>\n" +
+		smallcaps("thanks for adding me in") + " " + richEsc(chatTitle) + "."
+	_, _ = sendQuotedPhoto(chatID, inner, mixedKeyboard([][][2]string{
 		{{smallcaps("help"), "show_help"}, {smallcaps("about"), "about_menu"}},
 	}))
 	addBroadcastChat(chatID, "group")
@@ -191,11 +228,7 @@ func handleHelp(m *telegram.NewMessage) error {
 		return nil
 	}
 	_, _ = m.Delete()
-	uid := userIDOf(m)
-	name := userNameOf(m)
-	photo := StartPhotos[rand.Intn(len(StartPhotos))]
-	caption := richImg(photo) + helpListCaption(uid, name)
-	_, _ = sendHTML(Bot, m.ChatID(), caption, helpKB())
+	_, _ = sendQuotedPhoto(m.ChatID(), helpInner(userIDOf(m), userNameOf(m)), helpKB())
 	return nil
 }
 
