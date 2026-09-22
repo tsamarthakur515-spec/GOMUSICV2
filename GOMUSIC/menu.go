@@ -15,16 +15,7 @@ import (
 
 var menuHTTP = &http.Client{Timeout: 25 * time.Second}
 
-func styleFromColour(colour string) *telegram.KeyboardButtonStyle {
-	switch strings.ToLower(colour) {
-	case ColourRed:
-		return &telegram.KeyboardButtonStyle{BgDanger: true}
-	case ColourGreen:
-		return &telegram.KeyboardButtonStyle{BgSuccess: true}
-	default:
-		return &telegram.KeyboardButtonStyle{BgPrimary: true}
-	}
-}
+
 
 func gogramMarkup(rows [][]InlineBtn) telegram.ReplyMarkup {
 	kb := telegram.NewKeyboard()
