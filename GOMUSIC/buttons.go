@@ -11,17 +11,11 @@ const (
 	ColourGreen = "green"
 )
 
-var buttonColours = []string{ColourRed, ColourBlue, ColourGreen}
-
 type InlineBtn struct {
 	Text   string
 	Data   string
 	URL    string
 	Colour string
-}
-
-func randomColour() string {
-	return buttonColours[rand.Intn(len(buttonColours))]
 }
 
 func colourToStyle(colour string) string {
@@ -30,8 +24,10 @@ func colourToStyle(colour string) string {
 		return "danger"
 	case ColourGreen:
 		return "success"
-	default:
+	case ColourBlue:
 		return "primary"
+	default:
+		return ""
 	}
 }
 
