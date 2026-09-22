@@ -1,6 +1,12 @@
 # GOMUSICV2
 
-Private Go Telegram VC music bot.
+root@a9605ee2d6ca:~/GOMUSICV2# figlet GO MUSIC
+  ____  ___    __  __ _   _ ____ ___ ____
+ / ___|/ _ \  |  \/  | | | / ___|_ _/ ___|
+| |  _| | | | | |\/| | | | \___ \| | |
+| |_| | |_| | | |  | | |_| |___) | | |___
+ \____|\___/  |_|  |_|\___/|____/___\____|
+root@a9605ee2d6ca:~/GOMUSICV2#
 
 ```
 GOMUSIC/     bot code
