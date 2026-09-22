@@ -5,77 +5,55 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/rand"
 	"net/http"
 	"strings"
 	"time"
-	"unicode/utf16"
 
 	"github.com/amarnathcjd/gogram/telegram"
 )
 
 var menuHTTP = &http.Client{Timeout: 25 * time.Second}
 
-var buttonColors = []string{"danger", "primary", "success"}
-
-func randomButtonStyle() string {
-	return buttonColors[rand.Intn(len(buttonColors))]
-}
-
-func apiMarkup(markup telegram.ReplyMarkup, withStyle bool) map[string]any {
-	im, ok := markup.(*telegram.ReplyInlineMarkup)
-	if !ok || im == nil {
+func styledAPIMarkup(rows [][]InlineBtn) map[string]any {
+	if len(rows) == 0 {
 		return nil
 	}
-	var rows [][]map[string]string
-	for _, row := range im.Rows {
-		if row == nil {
-			continue
-		}
+	var out [][]map[string]string
+	for _, row := range rows {
 		var btns []map[string]string
-		for _, b := range row.Buttons {
-			if b == nil {
-				continue
-			}
+		for _, b := range row {
 			item := map[string]string{"text": b.Text}
-			switch t := b.Type.(type) {
-			case *telegram.InlineButtonTypeCallback:
-				item["callback_data"] = string(t.Data)
-			case *telegram.InlineButtonTypeURL:
-				item["url"] = t.URL
-			default:
-				continue
+			if b.URL != "" {
+				item["url"] = b.URL
+			} else {
+				item["callback_data"] = b.Data
 			}
-			if withStyle {
-				item["style"] = randomButtonStyle()
+			if b.Colour != "" {
+				item["style"] = colourToStyle(b.Colour)
 			}
 			btns = append(btns, item)
 		}
 		if len(btns) > 0 {
-			rows = append(rows, btns)
+			out = append(out, btns)
 		}
 	}
-	if len(rows) == 0 {
-		return nil
-	}
-	return map[string]any{"inline_keyboard": rows}
+	return map[string]any{"inline_keyboard": out}
 }
 
-func botAPICall(method string, body map[string]any) (map[string]any, error) {
+func botAPICall(method string, body map[string]any) error {
 	raw, err := json.Marshal(body)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	resp, err := menuHTTP.Post("https://api.telegram.org/bot"+BotToken+"/"+method, "application/json", bytes.NewReader(raw))
 	if err != nil {
-		return nil, err
+		return err
 	}
 	defer resp.Body.Close()
 	out, _ := io.ReadAll(resp.Body)
 	var parsed struct {
-		OK          bool           `json:"ok"`
-		Description string         `json:"description"`
-		Result      map[string]any `json:"result"`
+		OK          bool   `json:"ok"`
+		Description string `json:"description"`
 	}
 	_ = json.Unmarshal(out, &parsed)
 	if !parsed.OK {
@@ -83,90 +61,50 @@ func botAPICall(method string, body map[string]any) (map[string]any, error) {
 		if desc == "" {
 			desc = string(out)
 		}
-		return nil, fmt.Errorf("%s", desc)
+		return fmt.Errorf("%s", desc)
 	}
-	return parsed.Result, nil
+	return nil
 }
 
-func htmlToAPICaption(inner string) (string, []map[string]any) {
-	htmlText := "<blockquote expandable>" + strings.TrimSpace(inner) + "</blockquote>"
-	ents, plain := Bot.FormatMessage(htmlText, "HTML")
-	apiEnts := make([]map[string]any, 0, len(ents)+1)
-	hasBQ := false
-	for _, e := range ents {
-		switch t := e.(type) {
-		case *telegram.MessageEntityBlockquote:
-			hasBQ = true
-			kind := "blockquote"
-			if t.Collapsed {
-				kind = "expandable_blockquote"
-			}
-			apiEnts = append(apiEnts, map[string]any{"type": kind, "offset": t.Offset, "length": t.Length})
-		case *telegram.MessageEntityBold:
-			apiEnts = append(apiEnts, map[string]any{"type": "bold", "offset": t.Offset, "length": t.Length})
-		case *telegram.MessageEntityItalic:
-			apiEnts = append(apiEnts, map[string]any{"type": "italic", "offset": t.Offset, "length": t.Length})
-		case *telegram.MessageEntityCode:
-			apiEnts = append(apiEnts, map[string]any{"type": "code", "offset": t.Offset, "length": t.Length})
-		case *telegram.MessageEntityTextURL:
-			apiEnts = append(apiEnts, map[string]any{"type": "text_link", "offset": t.Offset, "length": t.Length, "url": t.URL})
-		case *telegram.MessageEntityMentionName:
-			apiEnts = append(apiEnts, map[string]any{"type": "text_link", "offset": t.Offset, "length": t.Length, "url": fmt.Sprintf("tg://user?id=%d", t.UserID)})
-		}
-	}
-	if !hasBQ && strings.TrimSpace(plain) != "" {
-		apiEnts = append([]map[string]any{{
-			"type":   "expandable_blockquote",
-			"offset": 0,
-			"length": len(utf16.Encode([]rune(plain))),
-		}}, apiEnts...)
-	}
-	return plain, apiEnts
+func startHTMLCaption(inner string) string {
+	return "<blockquote expandable>" + strings.TrimSpace(inner) + "</blockquote>"
 }
 
-func attachMarkup(body map[string]any, markup telegram.ReplyMarkup, withStyle bool) {
-	if kb := apiMarkup(markup, withStyle); kb != nil {
+func sendQuotedPhoto(chatID int64, inner string, rows [][]InlineBtn) (*telegram.NewMessage, error) {
+	caption := startHTMLCaption(inner)
+	photo := pickStartPhoto()
+	body := map[string]any{
+		"chat_id":    chatID,
+		"photo":      photo,
+		"caption":    caption,
+		"parse_mode": "HTML",
+	}
+	if kb := styledAPIMarkup(rows); kb != nil {
 		body["reply_markup"] = kb
 	}
-}
-
-func sendQuotedPhoto(chatID int64, inner string, markup telegram.ReplyMarkup) (*telegram.NewMessage, error) {
-	plain, ents := htmlToAPICaption(inner)
-	photo := pickStartPhoto()
-	try := func(withStyle bool, useEntities bool) error {
-		body := map[string]any{
-			"chat_id": chatID,
-			"photo":   photo,
-			"caption": plain,
-		}
-		if useEntities && len(ents) > 0 {
-			body["caption_entities"] = ents
-		} else {
-			body["caption"] = "<blockquote expandable>" + strings.TrimSpace(inner) + "</blockquote>"
-			body["parse_mode"] = "HTML"
-		}
-		attachMarkup(body, markup, withStyle)
-		_, err := botAPICall("sendPhoto", body)
-		return err
+	if err := botAPICall("sendPhoto", body); err == nil {
+		return nil, nil
 	}
-	for _, styled := range []bool{true, false} {
-		if err := try(styled, true); err == nil {
-			return nil, nil
+	delete(body, "reply_markup")
+	if kb := styledAPIMarkup(rows); kb != nil {
+		// retry without style if Telegram rejected button style
+		for _, row := range kb["inline_keyboard"].([][]map[string]string) {
+			for _, b := range row {
+				delete(b, "style")
+			}
 		}
-		if err := try(styled, false); err == nil {
-			return nil, nil
-		}
+		body["reply_markup"] = kb
 	}
-	caption := "<blockquote expandable>" + strings.TrimSpace(inner) + "</blockquote>"
-	msg, err := Bot.SendMedia(chatID, photo, &telegram.MediaOptions{
-		Caption:     caption,
-		ParseMode:   "HTML",
-		ReplyMarkup: markup,
+	if err := botAPICall("sendPhoto", body); err == nil {
+		return nil, nil
+	}
+	return Bot.SendMedia(chatID, photo, &telegram.MediaOptions{
+		Caption:   caption,
+		ParseMode: "HTML",
 	})
-	return msg, err
 }
 
-func showQuotedMenu(cb *telegram.CallbackQuery, inner string, markup telegram.ReplyMarkup) {
+func showQuotedMenu(cb *telegram.CallbackQuery, inner string, rows [][]InlineBtn) {
 	if cb == nil {
 		return
 	}
@@ -179,38 +117,26 @@ func showQuotedMenu(cb *telegram.CallbackQuery, inner string, markup telegram.Re
 	if msgID == 0 && msg != nil {
 		msgID = msg.ID
 	}
-	plain, ents := htmlToAPICaption(inner)
-	photo := pickStartPhoto()
-	try := func(withStyle bool, useEntities bool) error {
-		media := map[string]any{
-			"type":  "photo",
-			"media": photo,
-		}
-		if useEntities && len(ents) > 0 {
-			media["caption"] = plain
-			media["caption_entities"] = ents
-		} else {
-			media["caption"] = "<blockquote expandable>" + strings.TrimSpace(inner) + "</blockquote>"
-			media["parse_mode"] = "HTML"
-		}
-		body := map[string]any{
-			"chat_id":    chatID,
-			"message_id": msgID,
-			"media":      media,
-		}
-		attachMarkup(body, markup, withStyle)
-		_, err := botAPICall("editMessageMedia", body)
-		return err
+	caption := startHTMLCaption(inner)
+	media := map[string]any{
+		"type":       "photo",
+		"media":      pickStartPhoto(),
+		"caption":    caption,
+		"parse_mode": "HTML",
 	}
-	for _, styled := range []bool{true, false} {
-		if err := try(styled, true); err == nil || (err != nil && strings.Contains(strings.ToLower(err.Error()), "not modified")) {
-			return
-		}
-		if err := try(styled, false); err == nil || (err != nil && strings.Contains(strings.ToLower(err.Error()), "not modified")) {
-			return
-		}
+	body := map[string]any{
+		"chat_id":    chatID,
+		"message_id": msgID,
+		"media":      media,
 	}
-	_, _ = sendQuotedPhoto(chatID, inner, markup)
+	if kb := styledAPIMarkup(rows); kb != nil {
+		body["reply_markup"] = kb
+	}
+	err := botAPICall("editMessageMedia", body)
+	if err == nil || (err != nil && strings.Contains(strings.ToLower(err.Error()), "not modified")) {
+		return
+	}
+	_, _ = sendQuotedPhoto(chatID, inner, rows)
 	if msg != nil {
 		_, _ = msg.Delete()
 	}
