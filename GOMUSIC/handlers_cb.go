@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -48,55 +49,58 @@ func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 	chatID := cb.ChatID
 	msg, _ := cb.GetMessage()
 	alert := &telegram.CallbackOptions{Alert: true}
-	switch data {
-	case "pause":
+	switch {
+	case data == "pause":
 		if _, err := Calls.Pause(chatID); err != nil {
 			_, _ = cb.Answer("failed to pause", alert)
 			return nil
 		}
 		_, _ = cb.Answer("paused")
-	case "resume":
+	case data == "resume":
 		if _, err := Calls.Resume(chatID); err != nil {
 			_, _ = cb.Answer("failed to resume", alert)
 			return nil
 		}
 		_, _ = cb.Answer("resumed")
-	case "skip":
-		if queueSize(chatID) == 0 {
-			_, _ = cb.Answer("queue is empty", alert)
+	case data == "skip":
+		if err := skipCurrent(chatID); err != nil {
+			_, _ = cb.Answer("queue empty", alert)
 			return nil
 		}
-		skipped := popCurrent(chatID)
-		_ = Calls.Stop(chatID)
-		time.Sleep(2 * time.Second)
-		if skipped != nil {
-			deleteFile(skipped.FilePath)
+		_, _ = cb.Answer("skipped")
+	case strings.HasPrefix(data, "queue_now:"):
+		idx, err := strconv.Atoi(strings.TrimPrefix(data, "queue_now:"))
+		if err != nil || !moveAfterCurrent(chatID, idx) {
+			_, _ = cb.Answer("song not in queue", alert)
+			return nil
 		}
-		if nxt := peekCurrent(chatID); nxt != nil {
-			_, _ = cb.Answer("skipped")
-			_ = playSong(chatID, nil, *nxt)
-		} else {
+		if err := skipCurrent(chatID); err != nil {
 			_, _ = cb.Answer("queue empty", alert)
+			return nil
 		}
-	case "stop":
+		_, _ = cb.Answer("playing now")
+		if msg != nil {
+			_, _ = msg.Delete()
+		}
+	case data == "stop":
 		leaveVC(chatID)
 		_, _ = cb.Answer("stopped")
 		if msg != nil {
 			_, _ = msg.Delete()
 		}
-	case "close_panel":
+	case data == "close_panel":
 		_, _ = cb.Answer("")
 		if msg != nil {
 			_, _ = msg.Delete()
 		}
-	case "progress":
+	case data == "progress":
 		cur := peekCurrent(chatID)
 		title := "nothing playing"
 		if cur != nil {
 			title = shortTitle(cur.Title, 28)
 		}
 		_, _ = cb.Answer(title, alert)
-	case "seek_back", "seek_fwd":
+	case data == "seek_back", data == "seek_fwd":
 		delta := 10 * time.Second
 		if data == "seek_back" {
 			delta = -10 * time.Second
@@ -106,23 +110,23 @@ func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 			return nil
 		}
 		_, _ = cb.Answer("seeked")
-	case "clear":
+	case data == "clear":
 		clearQueue(chatID)
 		_, _ = cb.Answer("queue cleared")
-	case "noop":
+	case data == "noop":
 		_, _ = cb.Answer("")
-	case "close_help":
+	case data == "close_help":
 		_, _ = cb.Answer("")
 		if msg != nil {
 			_, _ = msg.Delete()
 		}
-	case "about_menu":
+	case data == "about_menu":
 		_, _ = cb.Answer("")
 		showQuotedMenu(cb, aboutInner(), GetAboutMarkup())
-	case "go_back":
+	case data == "go_back":
 		_, _ = cb.Answer("")
 		showQuotedMenu(cb, startInner(cb.Sender.ID, sanitizeDisplayName(cb.Sender.FirstName)), GetStartMarkup())
-	case "show_help":
+	case data == "show_help":
 		_, _ = cb.Answer("")
 		showQuotedMenu(cb, helpInner(cb.Sender.ID, sanitizeDisplayName(cb.Sender.FirstName)), GetHelpHomeMarkup())
 	default:
@@ -143,13 +147,13 @@ type helpCat struct {
 }
 
 var helpTexts = map[string]helpCat{
-	"help_admin":    {title: "admin commands", desc: "core playback controls for chat admins.", rows: [][]string{{"/pause", "pause"}, {"/resume", "resume"}, {"/skip", "skip"}, {"/stop", "stop"}, {"/clear", "clear queue"}, {"/seek", "seek forward"}, {"/seekback", "seek back"}, {"/reboot", "reset chat"}}},
+	"help_admin":    {title: "admin commands", desc: "core playback controls for chat admins.", rows: [][]string{{"/pause", "pause"}, {"/resume", "resume"}, {"/skip", "skip"}, {"/stop", "stop"}, {"/clear", "clear queue"}, {"/queue", "show queue"}, {"/seek", "seek forward"}, {"/seekback", "seek back"}, {"/reboot", "reset chat"}}},
 	"help_autoplay": {title: "autoplay commands", desc: "keep the queue going automatically.", rows: [][]string{{"/autoplay query", "start autoplay"}, {"/end", "stop autoplay"}}},
 	"help_gcast":    {title: "gcast commands", desc: "broadcast to every served chat (owner only).", rows: [][]string{{"/broadcast", "send text to all chats"}}},
 	"help_blchat":   {title: "block chat commands", desc: "block or unblock groups (owner only).", rows: [][]string{{"/gblock", "block group"}, {"/gunblock", "unblock group"}}},
 	"help_blusers":  {title: "block user commands", desc: "block or unblock users (owner only).", rows: [][]string{{"/ublock", "block user"}, {"/uunblock", "unblock user"}}},
 	"help_ping":     {title: "ping commands", desc: "latency and system diagnostics.", rows: [][]string{{"/ping", "bot latency"}, {"/stats", "full stats"}}},
-	"help_play":     {title: "play commands", desc: "start audio or video playback in a voice chat.", rows: [][]string{{"/play", "play audio"}, {"/vplay", "play video"}}},
+	"help_play":     {title: "play commands", desc: "start audio or video playback in a voice chat.", rows: [][]string{{"/play", "play audio"}, {"/vplay", "play video"}, {"/queue", "show queue"}}},
 	"help_speed":    {title: "speed and effects", desc: "adjust playback speed and audio effects.", rows: [][]string{{"/speed", "change speed"}, {"/bass", "bass boost"}, {"/effects", "status"}}},
 	"help_info":     {title: "info commands", desc: "bot, chat, and user information.", rows: [][]string{{"/id", "get ids"}, {"/stats", "stats"}}},
 }
