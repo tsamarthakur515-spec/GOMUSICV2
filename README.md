@@ -1,28 +1,17 @@
 # GOMUSICV2
-  ____  ___    __  __ _   _ ____ ___ ____
- / ___|/ _ \  |  \/  | | | / ___|_ _/ ___|
-| |  _| | | | | |\/| | | | \___ \| | |
-| |_| | |_| | | |  | | |_| |___) | | |___
- \____|\___/  |_|  |_|\___/|____/___\____|
 
-```
-GOMUSIC/     bot code
-ntgcalls/    C bindings (run setup once)
+ɢᴏᴍᴜsɪᴄ/     bot code
+ɴᴛɢᴄᴀʟʟs/    C bindings (run setup once)
 ```
 
-## Versions
+Versions
 
-| Thing | Version |
+| ᴛʜɪɴɢ | ᴠᴇʀsɪᴏɴ |
 | --- | --- |
-| Go | 1.26.0+ |
-| Telegram library | gogram v1.7.10 |
-| Voice calls | ntgcalls v2.2.5 |
-| Player | ffmpeg + yt-dlp |
-
-Menus (`/start`, Help, About) first use Telegram **Bot API** `sendPhoto` / `editMessageMedia` with `parse_mode=HTML` and button `style`. If that fails, they fall back to gogram `SendMedia` / `EditMessage`.
-
-Blockquote comes from HTML tags in the caption (`<blockquote>` and `<blockquote expandable>`), not from a gogram version bump.
-Button colors come from Bot API `style` (`danger` / `primary` / `success`) and gogram `KeyboardButtonStyle`.
+| ɢᴏ ᴠᴇʀsɪᴏɴ | 1.26.0+ |
+| ᴛᴇʟᴇɢʀᴀᴍ ʟɪʙʀᴀʀʏ ᴠᴇʀsɪᴏɴ | ɢᴏɢʀᴀᴍ v1.7.10 |
+| ᴠᴏɪᴄᴇ ᴄᴀʟʟs ғᴏʀ ᴍᴜsɪᴄ | ntgcalls v2.2.5 |
+| ᴘʟᴀʏᴇʀ | ғғᴍᴘᴇɢ + ʏᴛ-ᴅʟᴘ |
 
 ## Install Go (if `go version` fails)
 
@@ -57,4 +46,4 @@ pkill -f './gomusic' || true
 ./gomusic
 ```
 
-After pulling new code, always rebuild. The old `./gomusic` binary will keep running old menus until you `go build` again.
+
