@@ -28,7 +28,6 @@ func gogramMarkup(rows [][]InlineBtn) telegram.ReplyMarkup {
 			} else {
 				btn = telegram.Button.Data(b.Text, b.Data)
 			}
-			
 			btns = append(btns, btn)
 		}
 		if len(btns) > 0 {
