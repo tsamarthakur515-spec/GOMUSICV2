@@ -46,6 +46,25 @@ var (
 	activeCalls       = map[int64]telegram.InputGroupCall{}
 )
 
+func waitReady(c *telegram.Client, label string) error {
+	if c == nil {
+		return fmt.Errorf("%s client is nil", label)
+	}
+	var last error
+	for i := 1; i <= 8; i++ {
+		_ = c.Connect()
+		me, err := c.GetMe()
+		if err == nil && me != nil {
+			log.Printf("%s ready @%s id=%d\n", label, me.Username, me.ID)
+			return nil
+		}
+		last = err
+		log.Printf("%s GetMe retry %d/8: %v\n", label, i, err)
+		time.Sleep(time.Duration(i) * time.Second)
+	}
+	return last
+}
+
 func initClients() error {
 	if BotToken == "" {
 		return fmt.Errorf("BOT_TOKEN is empty - set it in .env")
@@ -59,16 +78,19 @@ func initClients() error {
 		AppHash:       APIHash,
 		MemorySession: true,
 		ParseMode:     "HTML",
+		NoPreconnect:  true,
 	})
 	if err != nil {
 		return err
 	}
 	if err := botClient.Connect(); err != nil {
-		return err
+		return fmt.Errorf("bot connect: %w", err)
 	}
 	if err := botClient.LoginBot(BotToken); err != nil {
-		return err
+		return fmt.Errorf("bot login: %w", err)
 	}
+	time.Sleep(1500 * time.Millisecond)
+	_ = botClient.Connect()
 	Bot = botClient
 
 	encoded, err := decodePyrogramSessionString(StringSession)
@@ -81,13 +103,16 @@ func initClients() error {
 		StringSession: encoded,
 		MemorySession: true,
 		ParseMode:     "HTML",
+		NoPreconnect:  true,
 	})
 	if err != nil {
 		return err
 	}
 	if err := asst.Connect(); err != nil {
-		return err
+		return fmt.Errorf("assistant connect: %w", err)
 	}
+	time.Sleep(800 * time.Millisecond)
+	_ = asst.Connect()
 	Assistant = asst
 
 	Calls = &callAPI{Client: ntgcalls.NTgCalls()}
