@@ -105,21 +105,6 @@ func blocked(m *telegram.NewMessage) bool {
 	return isUserBlockedDB(userIDOf(m))
 }
 
-func startHomeKB() telegram.ReplyMarkup {
-	return mixedKeyboard([][][2]string{
-		{{"➕ " + smallcaps("add me in your group") + " ➕", BotLink + "?startgroup=true"}},
-		{{smallcaps("owner"), fmt.Sprintf("tg://user?id=%d", OwnerID)}, {smallcaps("about"), "about_menu"}},
-		{{smallcaps("support"), SupportGroup}, {smallcaps("update"), UpdatesChannel}},
-		{{smallcaps("help and commands"), "show_help"}},
-	})
-}
-
-func aboutKB() telegram.ReplyMarkup {
-	return mixedKeyboard([][][2]string{
-		{{smallcaps("back"), "go_back"}},
-	})
-}
-
 func pickStartPhoto() string {
 	if len(StartPhotos) == 0 {
 		return ""
@@ -129,38 +114,37 @@ func pickStartPhoto() string {
 
 func startInner(uid int64, name string) string {
 	mention := fmt.Sprintf("<a href=\"tg://user?id=%d\">%s</a>", uid, richEsc(name))
-	return smallcaps("hey") + " " + mention + "\n\n" +
-		smallcaps("i am a high quality fast music bot.") + "\n" +
-		smallcaps("add me to your group and enjoy audio / video streaming.") + "\n\n" +
-		smallcaps("use the buttons below.")
+	return "<blockquote><b>" + smallcaps("hey") + "</b> " + mention + ",</blockquote>\n" +
+		"<blockquote expandable><b>" + smallcaps("i am a high quality fast music bot.") + "</b>\n" +
+		"<b>" + smallcaps("add me to your group and enjoy audio / video streaming.") + "</b>\n" +
+		"<b>" + smallcaps("use the buttons below.") + "</b></blockquote>"
 }
 
 func aboutInner() string {
-	return smallcaps("about") + "\n\n" +
-		smallcaps("high quality telegram music bot.") + "\n" +
-		smallcaps("supports audio and video streaming.") + "\n" +
-		smallcaps("powered by go + gogram + ntgcalls.") + "\n\n" +
-		smallcaps("bot") + " : <code>" + richEsc(BotName) + "</code>\n" +
-		smallcaps("version") + " : <code>GOMUSIC v2</code>\n" +
-		smallcaps("language") + " : <code>Go</code>\n" +
-		smallcaps("telegram") + " : <code>gogram v1.7.10</code>\n" +
-		smallcaps("calls") + " : <code>ntgcalls v2.2.5</code>\n" +
-		smallcaps("player") + " : <code>ffmpeg + yt-dlp</code>\n" +
-		smallcaps("runtime") + " : <code>" + runtime.Version() + "</code>\n\n" +
-		smallcaps("add me in your group and start playing.")
+	return "<blockquote><b>" + smallcaps("about") + "</b></blockquote>\n" +
+		"<blockquote expandable><b>" + smallcaps("high quality telegram music bot.") + "</b>\n" +
+		"<b>" + smallcaps("supports audio and video streaming.") + "</b>\n" +
+		"<b>" + smallcaps("powered by go + gogram + ntgcalls.") + "</b>\n\n" +
+		"<b>" + smallcaps("bot") + "</b> : <code>" + richEsc(BotName) + "</code>\n" +
+		"<b>" + smallcaps("version") + "</b> : <code>GOMUSIC v2</code>\n" +
+		"<b>" + smallcaps("language") + "</b> : <code>Go</code>\n" +
+		"<b>" + smallcaps("telegram") + "</b> : <code>gogram v1.7.10</code>\n" +
+		"<b>" + smallcaps("calls") + "</b> : <code>ntgcalls v2.2.5</code>\n" +
+		"<b>" + smallcaps("player") + "</b> : <code>ffmpeg + yt-dlp</code>\n" +
+		"<b>" + smallcaps("runtime") + "</b> : <code>" + runtime.Version() + "</code></blockquote>"
 }
 
 func helpInner(uid int64, name string) string {
 	mention := fmt.Sprintf("<a href=\"tg://user?id=%d\">%s</a>", uid, richEsc(name))
-	return smallcaps("help menu") + "\n\n" +
-		smallcaps("hey") + " " + mention + "\n" +
-		smallcaps("tap any command button below to see how to use it.")
+	return "<blockquote><b>" + smallcaps("help menu") + "</b></blockquote>\n\n" +
+		"<blockquote><b>" + smallcaps("hey") + "</b> " + mention + "</blockquote>\n" +
+		"<blockquote><b>" + smallcaps("tap any command button below to see how to use it.") + "</b></blockquote>"
 }
 
-func startCaption(uid int64, name string) string { return wrapBQ(startInner(uid, name)) }
-func aboutCaption() string                       { return wrapBQ(aboutInner()) }
+func startCaption(uid int64, name string) string { return startInner(uid, name) }
+func aboutCaption() string                       { return aboutInner() }
 func helpListCaption(uid int64, name string) string {
-	return wrapBQ(helpInner(uid, name))
+	return helpInner(uid, name)
 }
 
 func handleStart(m *telegram.NewMessage) error {
@@ -182,9 +166,9 @@ func handleStart(m *telegram.NewMessage) error {
 	if m.Chat != nil {
 		chatTitle = m.Chat.Title
 	}
-	inner := smallcaps("hey") + " " + fmt.Sprintf("<a href=\"tg://user?id=%d\">%s</a>", uid, richEsc(name)) + "\n\n" +
-		smallcaps("this is") + " <b>" + richEsc(BotName) + "</b>\n" +
-		smallcaps("thanks for adding me in") + " " + richEsc(chatTitle) + "."
+	inner := "<blockquote><b>" + smallcaps("hey") + "</b> " + fmt.Sprintf("<a href=\"tg://user?id=%d\">%s</a>", uid, richEsc(name)) + "</blockquote>\n" +
+		"<blockquote expandable><b>" + smallcaps("this is") + " " + richEsc(BotName) + "</b>\n" +
+		"<b>" + smallcaps("thanks for adding me in") + " " + richEsc(chatTitle) + ".</b></blockquote>"
 	_, _ = sendQuotedPhoto(chatID, inner, GetGroupStartMarkup())
 	addBroadcastChat(chatID, "group")
 	return nil
@@ -197,29 +181,4 @@ func handleHelp(m *telegram.NewMessage) error {
 	_, _ = m.Delete()
 	_, _ = sendQuotedPhoto(m.ChatID(), helpInner(userIDOf(m), userNameOf(m)), GetHelpMarkup())
 	return nil
-}
-
-func helpKB() telegram.ReplyMarkup {
-	return mixedKeyboard([][][2]string{
-		{{smallcaps("admin"), "help_admin"}, {smallcaps("autoplay"), "help_autoplay"}, {smallcaps("gcast"), "help_gcast"}},
-		{{smallcaps("bl-chat"), "help_blchat"}, {smallcaps("bl-users"), "help_blusers"}, {smallcaps("ping"), "help_ping"}},
-		{{smallcaps("play"), "help_play"}, {smallcaps("speed"), "help_speed"}, {smallcaps("info"), "help_info"}},
-		{{smallcaps("close"), "close_help"}},
-	})
-}
-
-func helpHomeKB() telegram.ReplyMarkup {
-	return mixedKeyboard([][][2]string{
-		{{smallcaps("admin"), "help_admin"}, {smallcaps("autoplay"), "help_autoplay"}, {smallcaps("gcast"), "help_gcast"}},
-		{{smallcaps("bl-chat"), "help_blchat"}, {smallcaps("bl-users"), "help_blusers"}, {smallcaps("ping"), "help_ping"}},
-		{{smallcaps("play"), "help_play"}, {smallcaps("speed"), "help_speed"}, {smallcaps("info"), "help_info"}},
-		{{smallcaps("back"), "go_back"}},
-	})
-}
-
-func backKB() telegram.ReplyMarkup {
-	return mixedKeyboard([][][2]string{
-		{{smallcaps("back"), "show_help"}},
-		{{smallcaps("close"), "close_help"}},
-	})
 }
