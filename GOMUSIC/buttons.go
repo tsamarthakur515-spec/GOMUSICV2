@@ -110,3 +110,10 @@ func GetNowPlayingMarkup(bar string) [][]InlineBtn {
 		{styleBtn("Close", "close_panel", ColourRed)},
 	}
 }
+
+func GetQueuedMarkup(index int) [][]InlineBtn {
+	return [][]InlineBtn{
+		{styleBtn(smallcaps("play now"), fmt.Sprintf("queue_now:%d", index), ColourBlue), styleBtn(smallcaps("skip"), "skip", ColourGreen)},
+		{styleBtn(smallcaps("close"), "close_panel", ColourRed)},
+	}
+}
