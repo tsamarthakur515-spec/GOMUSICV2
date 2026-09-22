@@ -57,11 +57,11 @@ func styleURLBtn(text, url, colour string) InlineBtn {
 }
 
 func DataBtn(text, cb string) InlineBtn {
-	return styleBtn(text, cb, randomColour())
+	return dataBtn(text, cb)
 }
 
 func UrlBtn(text, url string) InlineBtn {
-	return styleURLBtn(text, url, randomColour())
+	return urlBtn(text, url)
 }
 
 func GetStartMarkup() [][]InlineBtn {
