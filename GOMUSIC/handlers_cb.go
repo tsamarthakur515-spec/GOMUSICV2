@@ -118,19 +118,19 @@ func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 		}
 	case "about_menu":
 		_, _ = cb.Answer("")
-		showQuotedMenu(cb, aboutInner(), aboutKB())
+		showQuotedMenu(cb, aboutInner(), GetAboutMarkup())
 	case "go_back":
 		_, _ = cb.Answer("")
-		showQuotedMenu(cb, startInner(cb.Sender.ID, sanitizeDisplayName(cb.Sender.FirstName)), startHomeKB())
+		showQuotedMenu(cb, startInner(cb.Sender.ID, sanitizeDisplayName(cb.Sender.FirstName)), GetStartMarkup())
 	case "show_help":
 		_, _ = cb.Answer("")
-		showQuotedMenu(cb, helpInner(cb.Sender.ID, sanitizeDisplayName(cb.Sender.FirstName)), helpHomeKB())
+		showQuotedMenu(cb, helpInner(cb.Sender.ID, sanitizeDisplayName(cb.Sender.FirstName)), GetHelpHomeMarkup())
 	default:
 		if strings.HasPrefix(data, "help_") {
 			_, _ = cb.Answer("")
 			if h, ok := helpTexts[data]; ok {
 				body := smallcaps(h.title) + "\n\n" + smallcaps(h.desc) + "\n\n" + richTable([]string{"command", "description"}, h.rows)
-				showQuotedMenu(cb, body, backKB())
+				showQuotedMenu(cb, body, GetBackMarkup())
 			}
 		}
 	}
