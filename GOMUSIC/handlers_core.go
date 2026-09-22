@@ -174,7 +174,7 @@ func handleStart(m *telegram.NewMessage) error {
 	addServedUser(uid)
 	addServedChat(chatID)
 	if m.IsPrivate() {
-		_, _ = sendQuotedPhoto(chatID, startInner(uid, name), startHomeKB())
+		_, _ = sendQuotedPhoto(chatID, startInner(uid, name), GetStartMarkup())
 		addBroadcastChat(chatID, "private")
 		return nil
 	}
@@ -185,9 +185,7 @@ func handleStart(m *telegram.NewMessage) error {
 	inner := smallcaps("hey") + " " + fmt.Sprintf("<a href=\"tg://user?id=%d\">%s</a>", uid, richEsc(name)) + "\n\n" +
 		smallcaps("this is") + " <b>" + richEsc(BotName) + "</b>\n" +
 		smallcaps("thanks for adding me in") + " " + richEsc(chatTitle) + "."
-	_, _ = sendQuotedPhoto(chatID, inner, mixedKeyboard([][][2]string{
-		{{smallcaps("help"), "show_help"}, {smallcaps("about"), "about_menu"}},
-	}))
+	_, _ = sendQuotedPhoto(chatID, inner, GetGroupStartMarkup())
 	addBroadcastChat(chatID, "group")
 	return nil
 }
@@ -197,7 +195,7 @@ func handleHelp(m *telegram.NewMessage) error {
 		return nil
 	}
 	_, _ = m.Delete()
-	_, _ = sendQuotedPhoto(m.ChatID(), helpInner(userIDOf(m), userNameOf(m)), helpKB())
+	_, _ = sendQuotedPhoto(m.ChatID(), helpInner(userIDOf(m), userNameOf(m)), GetHelpMarkup())
 	return nil
 }
 
