@@ -1,5 +1,7 @@
 # GOMUSICV2
-
+<p align="center">
+  <img src="[https://example.com/gomusic.png](https://files.catbox.moe/k86aex.jpg)" alt="GOMUSICV2" width="100%">
+</p>
 Versions
 
 | ᴛʜɪɴɢ | ᴠᴇʀsɪᴏɴ |
