@@ -26,17 +26,6 @@ func styleFromColour(colour string) *telegram.KeyboardButtonStyle {
 	}
 }
 
-func colourToStyle(colour string) string {
-	switch strings.ToLower(colour) {
-	case ColourRed:
-		return "danger"
-	case ColourGreen:
-		return "success"
-	default:
-		return "primary"
-	}
-}
-
 func gogramMarkup(rows [][]InlineBtn) telegram.ReplyMarkup {
 	kb := telegram.NewKeyboard()
 	for _, row := range rows {
