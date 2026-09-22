@@ -1,9 +1,5 @@
 # GOMUSICV2
 
-ɢᴏᴍᴜsɪᴄ/     bot code
-ɴᴛɢᴄᴀʟʟs/    C bindings (run setup once)
-```
-
 Versions
 
 | ᴛʜɪɴɢ | ᴠᴇʀsɪᴏɴ |
