@@ -3,7 +3,6 @@ package main
 import (
 	"fmt"
 	"html"
-	"log"
 	"reflect"
 	"regexp"
 	"sort"
@@ -211,13 +210,8 @@ func hasBlockquote(ents []telegram.MessageEntity) bool {
 }
 
 func captionEntities(htmlText string) ([]telegram.MessageEntity, string) {
-	// Let gogram parse the native HTML blockquote entity. This is the same
-	// path used by the reference KanhaMusic project and keeps the entity
-	// offsets/nesting valid for both new captions and edited captions.
 	text := telegramHTML(htmlText)
 	ents, plain := Bot.FormatMessage(text, "HTML")
-
-	// Keep entities in Telegram's canonical order for media-caption edits.
 	sort.SliceStable(ents, func(i, j int) bool {
 		offI, lenI := entityBounds(ents[i])
 		offJ, lenJ := entityBounds(ents[j])
@@ -226,7 +220,6 @@ func captionEntities(htmlText string) ([]telegram.MessageEntity, string) {
 		}
 		return lenI > lenJ
 	})
-
 	return ents, plain
 }
 
@@ -257,7 +250,6 @@ func sendHTML(client *telegram.Client, chat any, content string, markup telegram
 		msg, err := client.SendMedia(chat, photo, opts)
 		if err == nil && msg != nil {
 			rememberMenuPic(msgBotChatID(msg), msg.ID, photo)
-			log.Printf("menu media send chat=%d msg=%d blockquote=%v entities=%s", msgBotChatID(msg), msg.ID, hasBlockquote(msgEntities(msg)), entityDump(msgEntities(msg)))
 			return msg, nil
 		}
 	}
@@ -268,9 +260,6 @@ func sendHTML(client *telegram.Client, chat any, content string, markup telegram
 	})
 	if err != nil {
 		return client.SendMessage(chat, plain, &telegram.SendOptions{ReplyMarkup: markup})
-	}
-	if msg != nil {
-		log.Printf("message send chat=%d msg=%d blockquote=%v entities=%s", msgBotChatID(msg), msg.ID, hasBlockquote(msgEntities(msg)), entityDump(msgEntities(msg)))
 	}
 	return msg, nil
 }
@@ -287,64 +276,40 @@ func editMenu(cb *telegram.CallbackQuery, content string, markup telegram.ReplyM
 	if cb == nil {
 		return nil
 	}
-
 	msg, err := cb.GetMessage()
 	if err != nil || msg == nil {
 		return err
 	}
-
 	chatID := cb.ChatID
 	if chatID == 0 {
 		chatID = msgBotChatID(msg)
 	}
-
 	_, raw := extractPhoto(content)
-
-	// Re-submit the existing photo together with the formatted caption. This
-	// mirrors Telegram's EditMessageMedia path and preserves blockquote
-	// entities in media captions, which caption-only edits can drop.
 	if photoURL := menuPhotoURL(chatID, msg.ID); photoURL != "" {
 		ents, plain := captionEntities(raw)
-		edited, editErr := Bot.EditMessage(chatID, msg.ID, plain, &telegram.SendOptions{
+		_, err = Bot.EditMessage(chatID, msg.ID, plain, &telegram.SendOptions{
 			ParseMode:   "",
 			Entities:    ents,
 			Media:       &telegram.InputMediaPhotoExternal{URL: photoURL},
 			ReplyMarkup: markup,
 		})
-		err = editErr
-		if edited != nil {
-			log.Printf("menu media edit chat=%d msg=%d blockquote=%v entities=%s", chatID, msg.ID, hasBlockquote(msgEntities(edited)), entityDump(msgEntities(edited)))
-		}
 	} else {
-		// Text messages and menus created before photo tracking was enabled
-		// still use the safe caption-only path.
 		err = editPhotoCaption(chatID, msg.ID, msg, raw, markup)
 	}
-
 	if isNotModified(err) {
 		return nil
 	}
-
 	return err
 }
 
-const (
-	buttonRed   = "red"
-	buttonBlue  = "blue"
-	buttonGreen = "green"
-)
-
 func styleMenuButton(button telegram.KeyboardInlineButton, colour string) telegram.KeyboardInlineButton {
 	switch strings.ToLower(colour) {
-	case buttonRed:
+	case "red":
 		button.Style = &telegram.KeyboardButtonStyle{BgDanger: true}
-		button.Text = "🔴 " + button.Text
-	case buttonBlue:
-		button.Style = &telegram.KeyboardButtonStyle{BgPrimary: true}
-		button.Text = "🔵 " + button.Text
-	case buttonGreen:
+	case "green":
 		button.Style = &telegram.KeyboardButtonStyle{BgSuccess: true}
-		button.Text = "🟢 " + button.Text
+	default:
+		button.Style = &telegram.KeyboardButtonStyle{BgPrimary: true}
 	}
 	return button
 }
@@ -354,14 +319,13 @@ func mixedKeyboard(rows [][][2]string) telegram.ReplyMarkup {
 	for rowIndex, row := range rows {
 		btns := make([]telegram.KeyboardInlineButton, 0, len(row))
 		for buttonIndex, b := range row {
-			colour := buttonBlue
+			colour := "blue"
 			switch (rowIndex + buttonIndex) % 3 {
 			case 0:
-				colour = buttonRed
+				colour = "red"
 			case 2:
-				colour = buttonGreen
+				colour = "green"
 			}
-
 			var button telegram.KeyboardInlineButton
 			if strings.HasPrefix(b[1], "http://") || strings.HasPrefix(b[1], "https://") || strings.HasPrefix(b[1], "tg://") {
 				button = telegram.Button.URL(b[0], b[1])
