@@ -24,6 +24,7 @@ func registerHandlers() {
 	Bot.On("message:/stop", handleStop)
 	Bot.On("message:/end", handleStop)
 	Bot.On("message:/clear", handleClear)
+	Bot.On("message:/queue", handleQueue)
 	Bot.On("message:/reboot", handleReboot)
 	Bot.On("message:/ping", handlePing)
 	Bot.On("message:/id", handleID)
