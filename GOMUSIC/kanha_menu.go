@@ -100,7 +100,11 @@ func botAPICall(method string, body map[string]any) error {
 }
 
 func quotedCaption(inner string) string {
-	return "<blockquote>" + strings.TrimSpace(inner) + "</blockquote>"
+	inner = strings.TrimSpace(inner)
+	if strings.Contains(inner, "<blockquote") {
+		return inner
+	}
+	return "<blockquote>" + inner + "</blockquote>"
 }
 
 func sendQuotedPhoto(chatID int64, inner string, rows [][]InlineBtn) (*telegram.NewMessage, error) {
