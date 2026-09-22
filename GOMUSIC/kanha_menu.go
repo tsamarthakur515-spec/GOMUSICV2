@@ -39,17 +39,34 @@ func gogramMarkup(rows [][]InlineBtn) telegram.ReplyMarkup {
 	return kb.Build()
 }
 
-func startHTMLCaption(inner string) string {
-	return "<blockquote>" + strings.TrimSpace(inner) + "</blockquote>"
+func quotedEntities(inner string) ([]telegram.MessageEntity, string) {
+	caption := "<blockquote>" + strings.TrimSpace(inner) + "</blockquote>"
+	ents, plain := Bot.FormatMessage(caption, "HTML")
+	hasBQ := false
+	for _, e := range ents {
+		if bq, ok := e.(*telegram.MessageEntityBlockquote); ok {
+			bq.Collapsed = false
+			hasBQ = true
+		}
+	}
+	if !hasBQ && strings.TrimSpace(plain) != "" {
+		ents = append(ents, &telegram.MessageEntityBlockquote{
+			Collapsed: false,
+			Offset:    0,
+			Length:    int32(utf16Count(plain)),
+		})
+	}
+	return ents, plain
 }
 
 func sendQuotedPhoto(chatID int64, inner string, rows [][]InlineBtn) (*telegram.NewMessage, error) {
-	caption := startHTMLCaption(inner)
+	ents, plain := quotedEntities(inner)
 	photo := pickStartPhoto()
 	markup := gogramMarkup(rows)
 	msg, err := Bot.SendMedia(chatID, photo, &telegram.MediaOptions{
-		Caption:     caption,
-		ParseMode:   "HTML",
+		Caption:     plain,
+		ParseMode:   "",
+		Entities:    ents,
 		ReplyMarkup: markup,
 	})
 	if err != nil {
@@ -71,15 +88,7 @@ func showQuotedMenu(cb *telegram.CallbackQuery, inner string, rows [][]InlineBtn
 	if msgID == 0 && msg != nil {
 		msgID = msg.ID
 	}
-	caption := startHTMLCaption(inner)
-	ents, plain := Bot.FormatMessage(caption, "HTML")
-	if !hasBlockquote(ents) && strings.TrimSpace(plain) != "" {
-		ents = append(ents, &telegram.MessageEntityBlockquote{
-			Collapsed: false,
-			Offset:    0,
-			Length:    int32(utf16Count(plain)),
-		})
-	}
+	ents, plain := quotedEntities(inner)
 	markup := gogramMarkup(rows)
 	photo := pickStartPhoto()
 	_, err := Bot.EditMessage(chatID, msgID, plain, &telegram.SendOptions{
