@@ -23,13 +23,7 @@ func nowPlayingCaption(song Song) string {
 }
 
 func nowPlayingKB(elapsed, total float64) telegram.ReplyMarkup {
-	bar := progressBar(elapsed, total)
-	return mixedKeyboard([][][2]string{
-		{{"▷", "resume"}, {"II", "pause"}, {"‣‣I", "skip"}, {"▢", "stop"}},
-		{{"⏪ -10s", "seek_back"}, {"+10s ⏩", "seek_fwd"}},
-		{{bar, "progress"}},
-		{{"🗑 Close", "close_panel"}},
-	})
+	return gogramMarkup(GetNowPlayingMarkup(progressBar(elapsed, total)))
 }
 
 func makePanelImage(cover, videoID string) string {
