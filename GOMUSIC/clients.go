@@ -117,9 +117,6 @@ func initClients() error {
 
 	Calls = &callAPI{Client: ntgcalls.NTgCalls()}
 	Calls.OnStreamEnd(func(chat int64, t ntgcalls.StreamType, d ntgcalls.StreamDevice) {
-		if t != ntgcalls.AudioStream {
-			return
-		}
 		go handleStreamEnd(chat)
 	})
 	Calls.OnConnectionChange(func(chat int64, info ntgcalls.NetworkInfo) {
