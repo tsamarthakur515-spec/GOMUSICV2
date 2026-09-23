@@ -13,11 +13,7 @@ func RoomPlay(chatID int64, song Song, force bool, msg *telegram.NewMessage) err
 
 	if !force && isBusy(chatID) {
 		pos := addToQueue(chatID, song)
-		body := "<blockquote><b>💐 incoming track detected : #" + fmt.Sprintf("%d", pos-1) + "</b></blockquote>\n" +
-			"<blockquote expandable><b>🎋 melody :</b> " + richEsc(shortTitle(song.Title, 42)) + "\n" +
-			"<b>✨ length :</b> " + richEsc(song.Duration) + "\n" +
-			"<b>🌺 requester :</b> " + richEsc(song.Requester) + "\n\n" +
-			"💐 standby, your session begins shortly</blockquote>"
+		body := incomingTrackHTML(pos-1, song)
 		if msg != nil {
 			_ = editHTML(msg, body, gogramMarkup(GetQueuedMarkup(chatID, pos-1)))
 		} else {
@@ -46,7 +42,7 @@ func RoomChangeStream(chatID int64) error {
 	if nxt == nil {
 		releaseSwitch(chatID)
 		leaveVCNow(chatID)
-		_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("queue is empty, left vc")), nil)
+		_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("the queue has finished")+"\n\n"+smallcaps("use /play to add more songs")), nil)
 		return fmt.Errorf("queue empty")
 	}
 	msg, _ := sendHTML(Bot, chatID, wrapBQ(smallcaps("processing...")), nil)

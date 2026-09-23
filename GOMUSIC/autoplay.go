@@ -55,6 +55,28 @@ func startAutoplay(chatID int64, query, requester string, requesterID int64) int
 	return fetchMore(chatID, requester, requesterID)
 }
 
+func toggleAutoplay(chatID int64) bool {
+	if isAutoplay(chatID) {
+		stopAutoplay(chatID)
+		return false
+	}
+	cur := peekCurrent(chatID)
+	query := "trending songs"
+	req := "AutoPlay"
+	var reqID int64
+	if cur != nil {
+		if cur.Title != "" {
+			query = cur.Title
+		}
+		if cur.Requester != "" {
+			req = cur.Requester
+		}
+		reqID = cur.RequesterID
+	}
+	startAutoplay(chatID, query, req, reqID)
+	return true
+}
+
 func fetchMore(chatID int64, requester string, requesterID int64) int {
 	apMu.Lock()
 	if apFetching[chatID] {
@@ -107,7 +129,7 @@ func fetchMore(chatID int64, requester string, requesterID int64) int {
 				Title:           item.Title,
 				Duration:        isoToHuman(item.Duration),
 				DurationSeconds: isoToSec(item.Duration),
-				Requester:       "🔁 AutoPlay",
+				Requester:       "AutoPlay",
 				RequesterID:     requesterID,
 				Thumbnail:       item.Thumbnail,
 			})
