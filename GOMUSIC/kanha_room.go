@@ -7,10 +7,10 @@ import (
 	"github.com/nikhil390u8o/GOMUSICV2/ntgcalls"
 )
 
-// RoomPlay mirrors Kanha RoomState.Play:
-//   - busy + !force  -> only queue
-//   - otherwise play / replace on the SAME ntgcalls call
 func RoomPlay(chatID int64, song Song, force bool, msg *telegram.NewMessage) error {
+	unlock := lockChatPlay(chatID)
+	defer unlock()
+
 	if !force && isBusy(chatID) {
 		pos := addToQueue(chatID, song)
 		body := "<blockquote><b>💐 incoming track detected : #" + fmt.Sprintf("%d", pos-1) + "</b></blockquote>\n" +
@@ -55,7 +55,6 @@ func RoomChangeStream(chatID int64) error {
 	return err
 }
 
-// RoomPlayNow plays a queued index on the SAME call. Never ends/starts VC.
 func RoomPlayNow(chatID int64, index int) error {
 	holdSwitch(chatID)
 	q := getQueue(chatID)
