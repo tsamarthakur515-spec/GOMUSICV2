@@ -12,13 +12,15 @@ import (
 )
 
 func nowPlayingCaption(song Song) string {
-	body := smallcaps("now playing") + "\n\n" +
-		smallcaps("title") + " : " + richEsc(smallcaps(shortTitle(song.Title, 42))) + "\n" +
-		smallcaps("duration") + " : " + richEsc(smallcaps(song.Duration)) + "\n" +
-		smallcaps("request by") + " : " + richEsc(song.Requester) + "\n\n" +
-		smallcaps("engine") + " : " + smallcaps("kanha room play") + "\n" +
-		smallcaps("powered by") + " : " + smallcaps("gomusic v2")
-	return wrapBQ(body)
+	link := richEsc(song.URL)
+	if link == "" {
+		link = "#"
+	}
+	title := richEsc(shortTitle(song.Title, 48))
+	return "<blockquote><b>💮 " + smallcaps("playback activated") + " | " + smallcaps("enjoy the music") + " |</b></blockquote>\n" +
+		"<blockquote expandable>▫ <b>" + smallcaps("melody") + " :</b> <a href=\"" + link + "\">" + title + "</a>\n" +
+		"▫ <b>" + smallcaps("length") + " :</b> " + richEsc(song.Duration) + "\n" +
+		"▫ <b>" + smallcaps("requester") + " :</b> " + richEsc(song.Requester) + "</blockquote>"
 }
 
 func nowPlayingKB(elapsed, total float64) telegram.ReplyMarkup {
