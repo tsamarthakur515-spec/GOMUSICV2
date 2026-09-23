@@ -63,25 +63,26 @@ func ownerURL() string {
 
 func GetStartMarkup() [][]InlineBtn {
 	return [][]InlineBtn{
-		{styleURLBtn("+ "+smallcaps("add me to your group"), BotLink+"?startgroup=true", ColourRed)},
-		{styleBtn(smallcaps("help and commands"), "show_help", ColourGreen)},
-		{styleURLBtn(smallcaps("updates"), UpdatesChannel, ColourBlue), styleURLBtn(smallcaps("support"), SupportGroup, ColourGreen)},
-		{styleURLBtn(smallcaps("source code"), ownerURL(), ColourRed)},
+		{styleURLBtn(btnAddMe, BotLink+"?startgroup=true", ColourRed)},
+		{styleBtn(btnHelpStart, "help_cb", ColourGreen)},
+		{styleURLBtn(btnUpdates, UpdatesChannel, ColourBlue), styleURLBtn(btnSupport, SupportGroup, ColourGreen)},
+		{styleURLBtn(btnSource, ownerURL(), ColourRed)},
 	}
 }
 
 func GetAboutMarkup() [][]InlineBtn {
 	return [][]InlineBtn{
-		{styleBtn(smallcaps("back"), "go_back", ColourRed)},
+		{styleBtn(btnBack, "start", ColourRed)},
 	}
 }
 
 func GetHelpMarkup() [][]InlineBtn {
 	return [][]InlineBtn{
-		{styleBtn(smallcaps("admin"), "help_admin", ColourRed), styleBtn(smallcaps("auth"), "help_auth", ColourBlue), styleBtn(smallcaps("bcast"), "help_gcast", ColourGreen)},
-		{styleBtn(smallcaps("play"), "help_play", ColourRed), styleBtn(smallcaps("sudo"), "help_sudo", ColourBlue), styleBtn(smallcaps("restrict"), "help_restrict", ColourGreen)},
-		{styleBtn(smallcaps("start"), "help_start", ColourRed), styleBtn(smallcaps("autoplay"), "help_autoplay", ColourBlue), styleBtn(smallcaps("inline"), "help_inline", ColourGreen)},
-		{styleBtn(smallcaps("back"), "go_back", ColourRed)},
+		{styleBtn(btnAdmin, "help:admin", ColourRed), styleBtn(btnAuth, "help:auth", ColourBlue), styleBtn(btnBcast, "help:bcast", ColourGreen)},
+		{styleBtn(btnPlay, "help:play", ColourRed), styleBtn(btnSudo, "help:sudo", ColourBlue), styleBtn(btnRestrict, "help:restrict", ColourGreen)},
+		{styleBtn(btnThumb, "help:thumb", ColourRed), styleBtn(btnStart, "help:start", ColourBlue), styleBtn(btnAutoplay, "help:autoplay", ColourGreen)},
+		{styleBtn(btnPlaylist, "help:playlist", ColourRed), styleBtn(btnVCLogs, "help:vclogs", ColourBlue), styleBtn(btnInline, "help:inline", ColourGreen)},
+		{styleBtn(btnBack, "start", ColourRed)},
 	}
 }
 
@@ -89,17 +90,17 @@ func GetHelpHomeMarkup() [][]InlineBtn { return GetHelpMarkup() }
 
 func GetBackMarkup() [][]InlineBtn {
 	return [][]InlineBtn{
-		{styleBtn(smallcaps("back"), "show_help", ColourRed)},
+		{styleBtn(btnBack, "help:main", ColourRed)},
 	}
 }
 
 func GetGroupStartMarkup() [][]InlineBtn {
 	return [][]InlineBtn{
-		{styleURLBtn(smallcaps("commands"), BotLink+"?start=pm_help", ColourGreen)},
+		{styleURLBtn(btnCommands, BotLink+"?start=pm_help", ColourGreen)},
 	}
 }
 
-func GetNowPlayingMarkup(bar string) [][]InlineBtn {
+func GetNowPlayingMarkup(bar string, autoplayOn bool) [][]InlineBtn {
 	return [][]InlineBtn{
 		{styleBtn(bar, "progress", ColourGreen)},
 		{
@@ -109,17 +110,18 @@ func GetNowPlayingMarkup(bar string) [][]InlineBtn {
 			styleBtn("‣‣I", "skip", ColourGreen),
 			styleBtn("▢", "stop", ColourRed),
 		},
-		{styleBtn("-15s", "seek_back", ColourBlue), styleBtn("+15s", "seek_fwd", ColourGreen)},
-		{styleBtn(smallcaps("close"), "close_panel", ColourRed)},
+		{styleBtn(btnSeekBack, "seek_back", ColourBlue), styleBtn(btnSeekFwd, "seek_fwd", ColourGreen)},
+		{styleBtn(autoplayBtnText(autoplayOn), "autoplay_toggle", ColourBlue)},
+		{styleBtn(btnClose, "close", ColourRed)},
 	}
 }
 
 func GetQueuedMarkup(chatID int64, index int) [][]InlineBtn {
 	return [][]InlineBtn{
 		{
-			styleBtn(smallcaps("play now"), fmt.Sprintf("queue_now:%d:%d", chatID, index), ColourBlue),
-			styleBtn(smallcaps("skip"), fmt.Sprintf("skip:%d", chatID), ColourGreen),
+			styleBtn(btnPlayNow, fmt.Sprintf("queue_now:%d:%d", chatID, index), ColourBlue),
+			styleBtn(btnSkip, fmt.Sprintf("skip:%d", chatID), ColourGreen),
 		},
-		{styleBtn(smallcaps("close"), "close_panel", ColourRed)},
+		{styleBtn(btnClose, "close", ColourRed)},
 	}
 }
