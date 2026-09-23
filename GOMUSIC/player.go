@@ -69,11 +69,7 @@ func sendNowPlaying(chatID int64, song Song) *telegram.NewMessage {
 }
 
 func shouldStayInCall(chatID int64) bool {
-	if hasLocalCall(chatID) || isLiveSession(chatID) {
-		return true
-	}
-	_, ok := activeCalls[chatID]
-	return ok
+	return hasLocalCall(chatID) && isLiveSession(chatID)
 }
 
 func playSong(chatID int64, message *telegram.NewMessage, song Song) error {
@@ -83,10 +79,6 @@ func playSong(chatID int64, message *telegram.NewMessage, song Song) error {
 func playSongOpt(chatID int64, message *telegram.NewMessage, song Song, stayInCall bool) error {
 	holdSwitch(chatID)
 	defer releaseSwitch(chatID)
-
-	if shouldStayInCall(chatID) {
-		stayInCall = true
-	}
 
 	loading := wrapBQ("<b>" + smallcaps("loading") + "...</b>\n" + richEsc(shortTitle(song.Title, 40)))
 	if message != nil {
@@ -99,18 +91,6 @@ func playSongOpt(chatID int64, message *telegram.NewMessage, song Song, stayInCa
 		song.Title = t
 	}
 	setSeekState(chatID, 0)
-
-	if !stayInCall && !isLiveSession(chatID) {
-		vcDone := make(chan struct{})
-		go func() {
-			_ = ensureVC(chatID)
-			close(vcDone)
-		}()
-		select {
-		case <-vcDone:
-		case <-time.After(4 * time.Second):
-		}
-	}
 
 	src, err := resolveDirectURL(song.URL, song.Video)
 	if err != nil {
@@ -139,23 +119,7 @@ func playSongOpt(chatID int64, message *telegram.NewMessage, song Song, stayInCa
 	setCurrentPath(chatID, playPath)
 
 	media := buildMediaAV(src.Audio, src.Video, song.Video, 0)
-	var startErr error
-	if stayInCall {
-		startErr = ntgPlay(chatID, media, song.Video)
-		if startErr != nil {
-			log.Println("kanha play same-call:", startErr)
-			startErr = ntgPlaySameCall(chatID, media)
-			if startErr != nil {
-				startErr = joinExistingCall(chatID, media, song.Video)
-			}
-		}
-	} else {
-		startErr = startNTGStreamWithMedia(chatID, media, song.Video)
-		if startErr != nil && !isLiveSession(chatID) {
-			_ = ensureVC(chatID)
-			startErr = startNTGStreamWithMedia(chatID, media, song.Video)
-		}
-	}
+	startErr := ntgPlay(chatID, media, song.Video)
 	if startErr != nil {
 		_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("playback failed")+"\n<code>"+richEsc(startErr.Error())+"</code>"), nil)
 		return startErr
