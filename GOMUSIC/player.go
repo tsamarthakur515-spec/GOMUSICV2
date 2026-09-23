@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/amarnathcjd/gogram/telegram"
-	"github.com/nikhil390u8o/GOMUSICV2/ntgcalls"
 )
 
 func nowPlayingCaption(song Song) string {
@@ -70,7 +69,7 @@ func sendNowPlaying(chatID int64, song Song) *telegram.NewMessage {
 }
 
 func shouldStayInCall(chatID int64) bool {
-	if hasLocalCall(chatID) {
+	if hasLocalCall(chatID) || isLiveSession(chatID) {
 		return true
 	}
 	_, ok := activeCalls[chatID]
@@ -82,7 +81,12 @@ func playSong(chatID int64, message *telegram.NewMessage, song Song) error {
 }
 
 func playSongOpt(chatID int64, message *telegram.NewMessage, song Song, stayInCall bool) error {
-	beginSwitch(chatID)
+	holdSwitch(chatID)
+	defer releaseSwitch(chatID)
+
+	if shouldStayInCall(chatID) {
+		stayInCall = true
+	}
 
 	loading := wrapBQ("<b>" + smallcaps("loading") + "...</b>\n" + richEsc(shortTitle(song.Title, 40)))
 	if message != nil {
@@ -96,7 +100,7 @@ func playSongOpt(chatID int64, message *telegram.NewMessage, song Song, stayInCa
 	}
 	setSeekState(chatID, 0)
 
-	if !stayInCall {
+	if !stayInCall && !isLiveSession(chatID) {
 		vcDone := make(chan struct{})
 		go func() {
 			_ = ensureVC(chatID)
@@ -133,28 +137,31 @@ func playSongOpt(chatID int64, message *telegram.NewMessage, song Song, stayInCa
 		playPath = src.Audio
 	}
 	setCurrentPath(chatID, playPath)
-	beginSwitch(chatID)
 
 	media := buildMediaAV(src.Audio, src.Video, song.Video, 0)
 	var startErr error
-	if stayInCall && Calls != nil {
-		startErr = Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
+	if stayInCall {
+		startErr = ntgPlay(chatID, media, song.Video)
 		if startErr != nil {
-			log.Println("stay-in-call set sources:", startErr)
+			log.Println("kanha play same-call:", startErr)
+			startErr = ntgPlaySameCall(chatID, media)
+			if startErr != nil {
+				startErr = joinExistingCall(chatID, media, song.Video)
+			}
 		}
 	} else {
 		startErr = startNTGStreamWithMedia(chatID, media, song.Video)
-		if startErr != nil {
+		if startErr != nil && !isLiveSession(chatID) {
 			_ = ensureVC(chatID)
 			startErr = startNTGStreamWithMedia(chatID, media, song.Video)
 		}
 	}
 	if startErr != nil {
-		removeFromQueue(chatID, 0)
 		_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("playback failed")+"\n<code>"+richEsc(startErr.Error())+"</code>"), nil)
 		return startErr
 	}
 
+	markLiveSession(chatID)
 	callIsVideo[chatID] = song.Video
 	addServedChat(chatID)
 	incrementPlayCount(chatID)
