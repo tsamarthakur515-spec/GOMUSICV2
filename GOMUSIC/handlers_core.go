@@ -150,26 +150,9 @@ func pickStartPhoto() string {
 	return StartPhotos[rand.Intn(len(StartPhotos))]
 }
 
-func startInner(uid int64, name string) string {
-	mention := fmt.Sprintf("<a href=\"tg://user?id=%d\">%s</a>", uid, richEsc(name))
-	bot := richEsc(BotName)
-	return "<blockquote><b>" + smallcaps("salutations") + "</b> " + mention + ",</blockquote>\n" +
-		"<blockquote expandable><b>✧ " + smallcaps("welcome to") + " " + bot + " — " + smallcaps("a powerful and high-speed tg music bot") + "</b>\n" +
-		"<b>✧ " + smallcaps("built for smooth stable lag-free music streaming") + "</b>\n" +
-		"<b>✧ " + smallcaps("powered by an optimized youtube api for instant playback") + "</b>\n" +
-		"<b>✧ " + smallcaps("enjoy high quality audio with seamless control") + "</b>\n" +
-		"<b>•──────────────•</b>\n" +
-		"<b>✧ " + smallcaps("use help to view all commands and features") + "</b></blockquote>"
-}
-
-func aboutInner() string { return startInner(OwnerID, BotName) }
-
-func helpInner(uid int64, name string) string {
-	return "<blockquote><b>🔮 " + smallcaps("explore the complete command index below") + "</b></blockquote>\n\n" +
-		"<blockquote><b>• " + smallcaps("access expert technical guidance and realtime support") + "</b></blockquote>\n" +
-		"<blockquote><b>• " + smallcaps("execute all commands using standard prefix") + "</b></blockquote>"
-}
-
+func startInner(uid int64, name string) string { return startPrivateHTML(uid, name, BotName) }
+func aboutInner() string                       { return startInner(OwnerID, BotName) }
+func helpInner(uid int64, name string) string  { return helpMainHTML() }
 func startCaption(uid int64, name string) string { return startInner(uid, name) }
 func aboutCaption() string                       { return aboutInner() }
 func helpListCaption(uid int64, name string) string {
@@ -196,8 +179,7 @@ func handleStart(m *telegram.NewMessage) error {
 		addBroadcastChat(chatID, "private")
 		return nil
 	}
-	inner := "<blockquote><b>💫 " + smallcaps("i am here") + "</b> " + smallcaps("try a command") + "</blockquote>"
-	_, _ = sendQuotedPhoto(chatID, inner, GetGroupStartMarkup())
+	_, _ = sendQuotedPhoto(chatID, startGroupHTML(), GetGroupStartMarkup())
 	addBroadcastChat(chatID, "group")
 	return nil
 }
@@ -208,8 +190,7 @@ func handleHelp(m *telegram.NewMessage) error {
 	}
 	_, _ = m.Delete()
 	if !m.IsPrivate() {
-		inner := "<blockquote><b>" + smallcaps("for bot help and commands, please dm me directly") + "</b></blockquote>"
-		_, _ = sendQuotedPhoto(m.ChatID(), inner, GetGroupStartMarkup())
+		_, _ = sendQuotedPhoto(m.ChatID(), helpPrivateOnlyHTML(), GetGroupStartMarkup())
 		return nil
 	}
 	_, _ = sendQuotedPhoto(m.ChatID(), helpInner(userIDOf(m), userNameOf(m)), GetHelpMarkup())
