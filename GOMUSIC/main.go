@@ -59,7 +59,12 @@ func main() {
 
 	registerHandlers()
 	registerCallbackFallback()
-	log.Println("GOMUSICV2 is running")
+	log.Println("draining old telegram updates for 8s")
+	go func() {
+		time.Sleep(8 * time.Second)
+		enableUpdates()
+		log.Println("GOMUSICV2 is ready for commands")
+	}()
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
