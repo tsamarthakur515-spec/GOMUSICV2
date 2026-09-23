@@ -5,6 +5,7 @@ import (
 	"math/rand"
 	"runtime"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/amarnathcjd/gogram/telegram"
@@ -12,6 +13,11 @@ import (
 
 var blockedWords = []string{"blocked"}
 var lastCmd = map[int64]time.Time{}
+var acceptUpdates atomic.Bool
+
+func enableUpdates() {
+	acceptUpdates.Store(true)
+}
 
 func live(h func(*telegram.NewMessage) error) func(*telegram.NewMessage) error {
 	return func(m *telegram.NewMessage) error {
@@ -59,6 +65,9 @@ func registerHandlers() {
 }
 
 func isStaleMessage(m *telegram.NewMessage) bool {
+	if !acceptUpdates.Load() {
+		return true
+	}
 	if m == nil {
 		return true
 	}
