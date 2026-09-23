@@ -80,7 +80,7 @@ func processPlay(m *telegram.NewMessage, query string, video bool) error {
 				return playSong(chatID, pm, *first)
 			}
 		}
-		_ = editHTML(pm, wrapBQ(smallcaps("playlist queued")+"\n"+fmt.Sprintf("%d", len(playlist))+" "+smallcaps("tracks")), gogramMarkup(GetQueuedMarkup(1)))
+		_ = editHTML(pm, wrapBQ(smallcaps("playlist queued")+"\n"+fmt.Sprintf("%d", len(playlist))+" "+smallcaps("tracks")), gogramMarkup(GetQueuedMarkup(chatID, 1)))
 		return nil
 	}
 	song := Song{URL: urlStr, Title: title, Duration: isoToHuman(durISO), DurationSeconds: parseDur(durISO), Requester: req, RequesterID: reqID, Thumbnail: thumb, Video: video}
@@ -92,7 +92,7 @@ func processPlay(m *telegram.NewMessage, query string, video bool) error {
 		smallcaps("title") + " : " + richEsc(shortTitle(title, 42)) + "\n" +
 		smallcaps("duration") + " : " + richEsc(isoToHuman(durISO)) + "\n" +
 		smallcaps("position") + " : " + fmt.Sprintf("%d", pos)
-	_ = editHTML(pm, wrapBQ(body), gogramMarkup(GetQueuedMarkup(pos-1)))
+	_ = editHTML(pm, wrapBQ(body), gogramMarkup(GetQueuedMarkup(chatID, pos-1)))
 	return nil
 }
 
@@ -279,7 +279,7 @@ func handleQueue(m *telegram.NewMessage) error {
 		}
 		b.WriteString(fmt.Sprintf("%d. %s\n%s : %s\n", i+1, richEsc(shortTitle(s.Title, 36)), mark, richEsc(s.Duration)))
 	}
-	_, _ = sendHTML(Bot, m.ChatID(), wrapBQ(b.String()), gogramMarkup(GetQueuedMarkup(1)))
+	_, _ = sendHTML(Bot, m.ChatID(), wrapBQ(b.String()), gogramMarkup(GetQueuedMarkup(m.ChatID(), 1)))
 	return nil
 }
 
