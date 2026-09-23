@@ -15,6 +15,7 @@ var (
 	callIsVideo  = map[int64]bool{}
 	connectWait  = map[int64]chan error{}
 	connectMu    sync.Mutex
+	streamEndMu  sync.Mutex
 	currentPaths = map[int64]string{}
 	streamGen    = map[int64]int{}
 	streamAt     = map[int64]time.Time{}
@@ -68,27 +69,21 @@ func leaveVC(chatID int64) {
 }
 
 func handleStreamEnd(chatID int64) {
+	streamEndMu.Lock()
+	defer streamEndMu.Unlock()
+
 	connectMu.Lock()
 	started := streamAt[chatID]
 	gen := streamGen[chatID]
 	connectMu.Unlock()
-	if started.IsZero() || time.Since(started) < 4*time.Second {
+	if started.IsZero() || time.Since(started) < 3*time.Second {
 		return
 	}
-	time.Sleep(500 * time.Millisecond)
-	connectMu.Lock()
-	if streamGen[chatID] != gen {
-		connectMu.Unlock()
-		return
-	}
-	connectMu.Unlock()
 
 	done := popCurrent(chatID)
 	if done != nil {
-		time.Sleep(time.Second)
 		deleteFile(done.FilePath)
 	}
-	time.Sleep(time.Second)
 	nxt := peekCurrent(chatID)
 	if nxt != nil {
 		msg, _ := sendHTML(Bot, chatID, wrapBQ(smallcaps("next track")+"\n"+richEsc(nxt.Title)), nil)
@@ -97,6 +92,7 @@ func handleStreamEnd(chatID int64) {
 	}
 	leaveVC(chatID)
 	_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("queue finished")), nil)
+	_ = gen
 }
 
 func ensureVC(chatID int64) error {
