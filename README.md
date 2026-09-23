@@ -1,15 +1,15 @@
 # GOMUSICV2
-<p align="center">
-  <img src="https://files.catbox.moe/k86aex.jpg" alt="GOMUSICV2" width="100%">
-</p>
-Versions
 
-| ᴛʜɪɴɢ | ᴠᴇʀsɪᴏɴ |
+Kanha-themed Telegram music bot in Go.
+
+Voice chats use **gogram + ntgcalls**. Start / help / player / queue panels match KanhaMusic (blockquote captions, coloured buttons, incoming-track + now-playing markup). Queues stay in memory — no database.
+
+| thing | version |
 | --- | --- |
-| ɢᴏ ᴠᴇʀsɪᴏɴ | 1.26.0+ |
-| ᴛᴇʟᴇɢʀᴀᴍ ʟɪʙʀᴀʀʏ | ɢᴏɢʀᴀᴍ v1.7.10 |
-| ᴠᴏɪᴄᴇ ᴄᴀʟʟs | ntgcalls v2.2.5 |
-| ᴘʟᴀʏᴇʀ | ғғᴍᴘᴇɢ + ʏᴛ-ᴅʟᴘ |
+| go | 1.26.0+ |
+| telegram library | gogram v1.7.71 |
+| voice calls | ntgcalls v2.2.5 |
+| player | ffmpeg + yt-dlp |
 
 ## Install Go (if `go version` fails)
 
@@ -43,5 +43,3 @@ go build -o gomusic ./GOMUSIC
 pkill -f './gomusic' || true
 ./gomusic
 ```
-
-
