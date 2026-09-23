@@ -63,6 +63,13 @@ func registerHandlers() {
 	Bot.On(telegram.OnCallbackQuery, handleCallbackQuery)
 }
 
+func messageDate(m *telegram.NewMessage) int64 {
+	if m == nil || m.Message == nil {
+		return 0
+	}
+	return int64(m.Message.Date)
+}
+
 func isStaleMessage(m *telegram.NewMessage) bool {
 	if !acceptUpdates.Load() {
 		return true
@@ -70,12 +77,7 @@ func isStaleMessage(m *telegram.NewMessage) bool {
 	if m == nil {
 		return true
 	}
-	var ts int64
-	if m.Message != nil {
-		if obj, ok := m.Message.(*telegram.MessageObj); ok && obj.Date > 0 {
-			ts = int64(obj.Date)
-		}
-	}
+	ts := messageDate(m)
 	text := strings.ToLower(strings.TrimSpace(m.Text()))
 	danger := strings.HasPrefix(text, "/start") || strings.HasPrefix(text, "/help") || strings.HasPrefix(text, "/broadcast") || strings.HasPrefix(text, "/gcast")
 	if ts == 0 {
@@ -153,8 +155,10 @@ func pickStartPhoto() string {
 func startInner(uid int64, name string) string { return startPrivateHTML(uid, name, BotName) }
 func aboutInner() string                       { return startInner(OwnerID, BotName) }
 func helpInner(uid int64, name string) string  { return helpMainHTML() }
-func startCaption(uid int64, name string) string { return startInner(uid, name) }
-func aboutCaption() string                       { return aboutInner() }
+func startCaption(uid int64, name string) string {
+	return startInner(uid, name)
+}
+func aboutCaption() string { return aboutInner() }
 func helpListCaption(uid int64, name string) string {
 	return helpInner(uid, name)
 }
