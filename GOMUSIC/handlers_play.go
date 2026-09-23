@@ -51,9 +51,6 @@ func processPlay(m *telegram.NewMessage, query string, video bool) error {
 			}
 		}
 		_ = promoteAssistant(chatID)
-		if !shouldStayInCall(chatID) {
-			go func() { _ = ensureVC(chatID) }()
-		}
 	}
 	if strings.Contains(query, "youtu.be/") {
 		if parts := strings.Split(query, "youtu.be/"); len(parts) > 1 {
