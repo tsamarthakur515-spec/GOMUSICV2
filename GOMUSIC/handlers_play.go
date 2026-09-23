@@ -97,17 +97,7 @@ func processPlay(m *telegram.NewMessage, query string, video bool) error {
 }
 
 func skipCurrent(chatID int64) error {
-	beginSwitch(chatID)
-	stay := shouldStayInCall(chatID)
-	skipped := popCurrent(chatID)
-	if skipped != nil {
-		deleteFile(skipped.FilePath)
-	}
-	nxt := peekCurrent(chatID)
-	if nxt == nil {
-		return fmt.Errorf("queue empty")
-	}
-	return playSongOpt(chatID, nil, *nxt, stay)
+	return changeStream(chatID)
 }
 
 func assistantIn(chatID int64) (present bool, banned bool) {
@@ -256,7 +246,7 @@ func handleStop(m *telegram.NewMessage) error {
 	if blocked(m) || m.IsPrivate() || !isAuthorized(m) {
 		return nil
 	}
-	leaveVC(m.ChatID())
+	leaveVCNow(m.ChatID())
 	_, _ = sendHTML(Bot, m.ChatID(), wrapBQ(smallcaps("playback stopped")), nil)
 	return nil
 }
@@ -294,7 +284,7 @@ func handleQueue(m *telegram.NewMessage) error {
 }
 
 func handleReboot(m *telegram.NewMessage) error {
-	leaveVC(m.ChatID())
+	leaveVCNow(m.ChatID())
 	_, _ = sendHTML(Bot, m.ChatID(), wrapBQ(smallcaps("chat rebooted")), nil)
 	return nil
 }
