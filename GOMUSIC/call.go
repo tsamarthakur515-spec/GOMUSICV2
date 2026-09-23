@@ -36,7 +36,6 @@ func beginSwitch(chatID int64) {
 }
 
 func endSwitch(chatID int64) {
-	switching.Delete(chatID)
 	bumpStream(chatID)
 }
 
@@ -46,7 +45,7 @@ func isSwitching(chatID int64) bool {
 		return false
 	}
 	t, _ := v.(time.Time)
-	return time.Since(t) < 90*time.Second
+	return time.Since(t) < 25*time.Second
 }
 
 func setCurrentPath(chatID int64, path string) {
@@ -73,6 +72,9 @@ func hasLocalCall(chatID int64) bool {
 }
 
 func leaveVC(chatID int64) {
+	if isSwitching(chatID) {
+		return
+	}
 	bumpStream(chatID)
 	stopAutoplay(chatID)
 	for _, song := range clearQueue(chatID) {
@@ -101,7 +103,7 @@ func handleStreamEnd(chatID int64) {
 	connectMu.Lock()
 	started := streamAt[chatID]
 	connectMu.Unlock()
-	if started.IsZero() || time.Since(started) < 4*time.Second {
+	if started.IsZero() || time.Since(started) < 15*time.Second {
 		return
 	}
 
