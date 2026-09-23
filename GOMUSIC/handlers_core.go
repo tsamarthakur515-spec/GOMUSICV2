@@ -13,40 +13,65 @@ import (
 var blockedWords = []string{"blocked"}
 var lastCmd = map[int64]time.Time{}
 
+func live(h func(*telegram.NewMessage) error) func(*telegram.NewMessage) error {
+	return func(m *telegram.NewMessage) error {
+		if isStaleMessage(m) {
+			return nil
+		}
+		return h(m)
+	}
+}
+
 func registerHandlers() {
-	Bot.On("message:/start", handleStart)
-	Bot.On("message:/help", handleHelp)
-	Bot.On("message:/play", handlePlay)
-	Bot.On("message:/vplay", handleVPlay)
-	Bot.On("message:/pause", handlePause)
-	Bot.On("message:/resume", handleResume)
-	Bot.On("message:/skip", handleSkip)
-	Bot.On("message:/stop", handleStop)
-	Bot.On("message:/end", handleStop)
-	Bot.On("message:/clear", handleClear)
-	Bot.On("message:/queue", handleQueue)
-	Bot.On("message:/reboot", handleReboot)
-	Bot.On("message:/ping", handlePing)
-	Bot.On("message:/id", handleID)
-	Bot.On("message:/autoplay", handleAutoplay)
-	Bot.On("message:/speed", handleSpeed)
-	Bot.On("message:/speedreset", handleSpeedReset)
-	Bot.On("message:/bass", handleBass)
-	Bot.On("message:/bassoff", handleBassOff)
-	Bot.On("message:/effecton", handleEffectOn)
-	Bot.On("message:/effectoff", handleEffectOff)
-	Bot.On("message:/effects", handleEffects)
-	Bot.On("message:/seek", handleSeek)
-	Bot.On("message:/seekback", handleSeekBack)
-	Bot.On("message:/gblock", handleGBlock)
-	Bot.On("message:/gunblock", handleGUnblock)
-	Bot.On("message:/ublock", handleUBlock)
-	Bot.On("message:/uunblock", handleUUnblock)
-	Bot.On("message:/blocklist", handleBlocklist)
-	Bot.On("message:/broadcast", handleBroadcast)
-	Bot.On("message:/gcast", handleBroadcast)
-	Bot.On("message:/stats", handleStats)
+	Bot.On("message:/start", live(handleStart))
+	Bot.On("message:/help", live(handleHelp))
+	Bot.On("message:/play", live(handlePlay))
+	Bot.On("message:/vplay", live(handleVPlay))
+	Bot.On("message:/pause", live(handlePause))
+	Bot.On("message:/resume", live(handleResume))
+	Bot.On("message:/skip", live(handleSkip))
+	Bot.On("message:/stop", live(handleStop))
+	Bot.On("message:/end", live(handleStop))
+	Bot.On("message:/clear", live(handleClear))
+	Bot.On("message:/queue", live(handleQueue))
+	Bot.On("message:/reboot", live(handleReboot))
+	Bot.On("message:/ping", live(handlePing))
+	Bot.On("message:/id", live(handleID))
+	Bot.On("message:/autoplay", live(handleAutoplay))
+	Bot.On("message:/speed", live(handleSpeed))
+	Bot.On("message:/speedreset", live(handleSpeedReset))
+	Bot.On("message:/bass", live(handleBass))
+	Bot.On("message:/bassoff", live(handleBassOff))
+	Bot.On("message:/effecton", live(handleEffectOn))
+	Bot.On("message:/effectoff", live(handleEffectOff))
+	Bot.On("message:/effects", live(handleEffects))
+	Bot.On("message:/seek", live(handleSeek))
+	Bot.On("message:/seekback", live(handleSeekBack))
+	Bot.On("message:/gblock", live(handleGBlock))
+	Bot.On("message:/gunblock", live(handleGUnblock))
+	Bot.On("message:/ublock", live(handleUBlock))
+	Bot.On("message:/uunblock", live(handleUUnblock))
+	Bot.On("message:/blocklist", live(handleBlocklist))
+	Bot.On("message:/broadcast", live(handleBroadcast))
+	Bot.On("message:/gcast", live(handleBroadcast))
+	Bot.On("message:/stats", live(handleStats))
 	Bot.On(telegram.OnCallbackQuery, handleCallbackQuery)
+}
+
+func isStaleMessage(m *telegram.NewMessage) bool {
+	if m == nil {
+		return true
+	}
+	var ts int64
+	if m.Message != nil {
+		if obj, ok := m.Message.(*telegram.MessageObj); ok && obj.Date > 0 {
+			ts = int64(obj.Date)
+		}
+	}
+	if ts == 0 {
+		return false
+	}
+	return time.Unix(ts, 0).Before(botStartTime.Add(-3 * time.Second))
 }
 
 func cmdArgs(m *telegram.NewMessage) string {
@@ -99,6 +124,9 @@ func isAuthorized(m *telegram.NewMessage) bool {
 }
 
 func blocked(m *telegram.NewMessage) bool {
+	if isStaleMessage(m) {
+		return true
+	}
 	if isGroupBlocked(m.ChatID()) {
 		return true
 	}
