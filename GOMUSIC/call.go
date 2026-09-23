@@ -71,10 +71,8 @@ func hasLocalCall(chatID int64) bool {
 	return Calls != nil && Calls.Calls()[chatID] != nil
 }
 
-func leaveVC(chatID int64) {
-	if isSwitching(chatID) {
-		return
-	}
+func leaveVCNow(chatID int64) {
+	switching.Delete(chatID)
 	bumpStream(chatID)
 	stopAutoplay(chatID)
 	for _, song := range clearQueue(chatID) {
@@ -90,6 +88,29 @@ func leaveVC(chatID int64) {
 	delete(callIsVideo, chatID)
 }
 
+func leaveVC(chatID int64) {
+	if isSwitching(chatID) {
+		return
+	}
+	leaveVCNow(chatID)
+}
+
+func changeStream(chatID int64) error {
+	beginSwitch(chatID)
+	done := popCurrent(chatID)
+	if done != nil {
+		deleteFile(done.FilePath)
+	}
+	nxt := peekCurrent(chatID)
+	if nxt == nil {
+		leaveVCNow(chatID)
+		_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("queue is empty, left vc")), nil)
+		return fmt.Errorf("queue empty")
+	}
+	msg, _ := sendHTML(Bot, chatID, wrapBQ(smallcaps("processing...")), nil)
+	return playSongOpt(chatID, msg, *nxt, true)
+}
+
 func handleStreamEnd(chatID int64) {
 	if isSwitching(chatID) {
 		return
@@ -99,26 +120,13 @@ func handleStreamEnd(chatID int64) {
 	if isSwitching(chatID) {
 		return
 	}
-
 	connectMu.Lock()
 	started := streamAt[chatID]
 	connectMu.Unlock()
 	if started.IsZero() || time.Since(started) < 15*time.Second {
 		return
 	}
-
-	done := popCurrent(chatID)
-	if done != nil {
-		deleteFile(done.FilePath)
-	}
-	nxt := peekCurrent(chatID)
-	if nxt != nil {
-		msg, _ := sendHTML(Bot, chatID, wrapBQ(smallcaps("next track")+"\n"+richEsc(nxt.Title)), nil)
-		_ = playSong(chatID, msg, *nxt)
-		return
-	}
-	leaveVC(chatID)
-	_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("queue finished")), nil)
+	_ = changeStream(chatID)
 }
 
 func ensureVC(chatID int64) error {
