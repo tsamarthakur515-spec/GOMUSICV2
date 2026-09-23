@@ -77,10 +77,12 @@ func isStaleMessage(m *telegram.NewMessage) bool {
 			ts = int64(obj.Date)
 		}
 	}
+	text := strings.ToLower(strings.TrimSpace(m.Text()))
+	danger := strings.HasPrefix(text, "/start") || strings.HasPrefix(text, "/help") || strings.HasPrefix(text, "/broadcast") || strings.HasPrefix(text, "/gcast")
 	if ts == 0 {
-		return false
+		return danger
 	}
-	return time.Unix(ts, 0).Before(botStartTime.Add(-3 * time.Second))
+	return time.Unix(ts, 0).Before(botStartTime.Add(-2 * time.Second))
 }
 
 func cmdArgs(m *telegram.NewMessage) string {
