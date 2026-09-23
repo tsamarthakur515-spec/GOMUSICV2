@@ -18,6 +18,18 @@ var (
 
 func handleCallback(m *telegram.NewMessage) error { return nil }
 
+func callbackChatID(cb *telegram.CallbackQuery, msg *telegram.NewMessage) int64 {
+	if msg != nil {
+		if id := msg.ChatID(); id != 0 {
+			return id
+		}
+	}
+	if cb != nil && cb.ChatID != 0 {
+		return cb.ChatID
+	}
+	return 0
+}
+
 func alreadyHandledCallback(cb *telegram.CallbackQuery) bool {
 	if cb == nil {
 		return true
@@ -38,6 +50,10 @@ func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 	if cb == nil || cb.Sender == nil {
 		return nil
 	}
+	if !acceptUpdates.Load() {
+		_, _ = cb.Answer("")
+		return nil
+	}
 	if alreadyHandledCallback(cb) {
 		return nil
 	}
@@ -46,8 +62,8 @@ func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 		return nil
 	}
 	data := string(cb.Data)
-	chatID := cb.ChatID
 	msg, _ := cb.GetMessage()
+	chatID := callbackChatID(cb, msg)
 	alert := &telegram.CallbackOptions{Alert: true}
 	switch {
 	case data == "pause":
@@ -62,14 +78,29 @@ func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 			return nil
 		}
 		_, _ = cb.Answer("resumed")
-	case data == "skip":
+	case data == "skip" || strings.HasPrefix(data, "skip:"):
+		if strings.HasPrefix(data, "skip:") {
+			if id, err := strconv.ParseInt(strings.TrimPrefix(data, "skip:"), 10, 64); err == nil {
+				chatID = id
+			}
+		}
 		if err := skipCurrent(chatID); err != nil {
 			_, _ = cb.Answer("queue empty", alert)
 			return nil
 		}
 		_, _ = cb.Answer("skipped")
 	case strings.HasPrefix(data, "queue_now:"):
-		idx, err := strconv.Atoi(strings.TrimPrefix(data, "queue_now:"))
+		parts := strings.Split(strings.TrimPrefix(data, "queue_now:"), ":")
+		var idx int
+		var err error
+		if len(parts) >= 2 {
+			if id, e := strconv.ParseInt(parts[0], 10, 64); e == nil {
+				chatID = id
+			}
+			idx, err = strconv.Atoi(parts[1])
+		} else {
+			idx, err = strconv.Atoi(parts[0])
+		}
 		if err != nil || !moveAfterCurrent(chatID, idx) {
 			_, _ = cb.Answer("song not in queue", alert)
 			return nil
@@ -83,7 +114,7 @@ func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 			_, _ = msg.Delete()
 		}
 	case data == "stop":
-		leaveVC(chatID)
+		leaveVCNow(chatID)
 		_, _ = cb.Answer("stopped")
 		if msg != nil {
 			_, _ = msg.Delete()
