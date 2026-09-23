@@ -83,6 +83,9 @@ func playSong(chatID int64, message *telegram.NewMessage, song Song) error {
 }
 
 func playSongOpt(chatID int64, message *telegram.NewMessage, song Song, stayInCall bool) error {
+	beginSwitch(chatID)
+	defer endSwitch(chatID)
+
 	loading := wrapBQ("<b>" + smallcaps("loading") + "...</b>\n" + richEsc(shortTitle(song.Title, 40)))
 	if message != nil {
 		_ = editHTML(message, loading, nil)
@@ -136,7 +139,6 @@ func playSongOpt(chatID int64, message *telegram.NewMessage, song Song, stayInCa
 	media := buildMediaAV(src.Audio, src.Video, song.Video, 0)
 	var startErr error
 	if hasLocalCall(chatID) && Calls != nil {
-		bumpStream(chatID)
 		startErr = Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
 	}
 	if startErr != nil || !hasLocalCall(chatID) {
@@ -172,6 +174,9 @@ func playSongOpt(chatID int64, message *telegram.NewMessage, song Song, stayInCa
 func updateProgress(chatID int64, msg *telegram.NewMessage, start time.Time, total float64, song Song) {
 	for {
 		time.Sleep(15 * time.Second)
+		if isSwitching(chatID) {
+			continue
+		}
 		cur := peekCurrent(chatID)
 		if cur == nil || cur.URL != song.URL {
 			return
