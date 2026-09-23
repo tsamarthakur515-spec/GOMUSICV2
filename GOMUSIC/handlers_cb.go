@@ -78,6 +78,17 @@ func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 			return nil
 		}
 		_, _ = cb.Answer("resumed")
+	case data == "replay":
+		cur := peekCurrent(chatID)
+		if cur == nil {
+			_, _ = cb.Answer("nothing playing", alert)
+			return nil
+		}
+		if err := playSongOpt(chatID, nil, *cur, true); err != nil {
+			_, _ = cb.Answer("replay failed", alert)
+			return nil
+		}
+		_, _ = cb.Answer("replaying")
 	case data == "skip" || strings.HasPrefix(data, "skip:"):
 		if strings.HasPrefix(data, "skip:") {
 			if id, err := strconv.ParseInt(strings.TrimPrefix(data, "skip:"), 10, 64); err == nil {
@@ -119,7 +130,7 @@ func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 		if msg != nil {
 			_, _ = msg.Delete()
 		}
-	case data == "close_panel":
+	case data == "close" || data == "close_panel" || data == "close_help":
 		_, _ = cb.Answer("")
 		if msg != nil {
 			_, _ = msg.Delete()
@@ -132,61 +143,64 @@ func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 		}
 		_, _ = cb.Answer(title, alert)
 	case data == "seek_back", data == "seek_fwd":
-		delta := 10 * time.Second
+		delta := 15 * time.Second
 		if data == "seek_back" {
-			delta = -10 * time.Second
+			delta = -15 * time.Second
 		}
 		if err := Calls.SeekBy(chatID, delta.Milliseconds()); err != nil {
 			_, _ = cb.Answer("seek failed", alert)
 			return nil
 		}
 		_, _ = cb.Answer("seeked")
+	case data == "autoplay_toggle":
+		on := toggleAutoplay(chatID)
+		if on {
+			_, _ = cb.Answer("autoplay enabled")
+		} else {
+			_, _ = cb.Answer("autoplay disabled")
+		}
+		if msg != nil {
+			cur := peekCurrent(chatID)
+			if cur != nil {
+				_ = editHTML(msg, streamNowPlayingHTML(*cur), nowPlayingKB(chatID, 0, float64(parseDur(cur.Duration))))
+			}
+		}
 	case data == "clear":
 		clearQueue(chatID)
 		_, _ = cb.Answer("queue cleared")
 	case data == "noop":
 		_, _ = cb.Answer("")
-	case data == "close_help":
-		_, _ = cb.Answer("")
-		if msg != nil {
-			_, _ = msg.Delete()
-		}
 	case data == "about_menu":
 		_, _ = cb.Answer("")
 		showQuotedMenu(cb, aboutInner(), GetAboutMarkup())
-	case data == "go_back":
+	case data == "start" || data == "go_back":
 		_, _ = cb.Answer("")
 		showQuotedMenu(cb, startInner(cb.Sender.ID, sanitizeDisplayName(cb.Sender.FirstName)), GetStartMarkup())
-	case data == "show_help":
+	case data == "help_cb" || data == "show_help" || data == "help:main":
 		_, _ = cb.Answer("")
-		showQuotedMenu(cb, helpInner(cb.Sender.ID, sanitizeDisplayName(cb.Sender.FirstName)), GetHelpHomeMarkup())
+		showQuotedMenu(cb, helpMainHTML(), GetHelpHomeMarkup())
 	default:
-		if strings.HasPrefix(data, "help_") {
+		if strings.HasPrefix(data, "help:") {
 			_, _ = cb.Answer("")
-			if h, ok := helpTexts[data]; ok {
-				body := smallcaps(h.title) + "\n\n" + smallcaps(h.desc) + "\n\n" + richTable([]string{"command", "description"}, h.rows)
+			key := strings.TrimPrefix(data, "help:")
+			if key == "main" {
+				showQuotedMenu(cb, helpMainHTML(), GetHelpHomeMarkup())
+				return nil
+			}
+			if body, ok := kanhaHelp[key]; ok {
 				showQuotedMenu(cb, body, GetBackMarkup())
+			}
+		} else if strings.HasPrefix(data, "help_") {
+			_, _ = cb.Answer("")
+			key := strings.TrimPrefix(data, "help_")
+			if body, ok := kanhaHelp[key]; ok {
+				showQuotedMenu(cb, body, GetBackMarkup())
+			} else {
+				showQuotedMenu(cb, helpMainHTML(), GetHelpHomeMarkup())
 			}
 		}
 	}
 	return nil
-}
-
-type helpCat struct {
-	title, desc string
-	rows        [][]string
-}
-
-var helpTexts = map[string]helpCat{
-	"help_admin":    {title: "admin commands", desc: "core playback controls for chat admins.", rows: [][]string{{"/pause", "pause"}, {"/resume", "resume"}, {"/skip", "skip"}, {"/stop", "stop"}, {"/clear", "clear queue"}, {"/queue", "show queue"}, {"/seek", "seek forward"}, {"/seekback", "seek back"}, {"/reboot", "reset chat"}}},
-	"help_autoplay": {title: "autoplay commands", desc: "keep the queue going automatically.", rows: [][]string{{"/autoplay query", "start autoplay"}, {"/end", "stop autoplay"}}},
-	"help_gcast":    {title: "gcast commands", desc: "broadcast to every served chat (owner only).", rows: [][]string{{"/broadcast", "send text to all chats"}}},
-	"help_blchat":   {title: "block chat commands", desc: "block or unblock groups (owner only).", rows: [][]string{{"/gblock", "block group"}, {"/gunblock", "unblock group"}}},
-	"help_blusers":  {title: "block user commands", desc: "block or unblock users (owner only).", rows: [][]string{{"/ublock", "block user"}, {"/uunblock", "unblock user"}}},
-	"help_ping":     {title: "ping commands", desc: "latency and system diagnostics.", rows: [][]string{{"/ping", "bot latency"}, {"/stats", "full stats"}}},
-	"help_play":     {title: "play commands", desc: "start audio or video playback in a voice chat.", rows: [][]string{{"/play", "play audio"}, {"/vplay", "play video"}, {"/queue", "show queue"}}},
-	"help_speed":    {title: "speed and effects", desc: "adjust playback speed and audio effects.", rows: [][]string{{"/speed", "change speed"}, {"/bass", "bass boost"}, {"/effects", "status"}}},
-	"help_info":     {title: "info commands", desc: "bot, chat, and user information.", rows: [][]string{{"/id", "get ids"}, {"/stats", "stats"}}},
 }
 
 func notifyOwner(me *telegram.UserObj, asst string) {
