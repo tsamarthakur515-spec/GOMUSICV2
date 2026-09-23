@@ -12,12 +12,12 @@ import (
 )
 
 func nowPlayingCaption(song Song) string {
-	body := smallcaps("streaming in vc") + "\n\n" +
+	body := smallcaps("now playing") + "\n\n" +
 		smallcaps("title") + " : " + richEsc(smallcaps(shortTitle(song.Title, 42))) + "\n" +
 		smallcaps("duration") + " : " + richEsc(smallcaps(song.Duration)) + "\n" +
 		smallcaps("request by") + " : " + richEsc(song.Requester) + "\n\n" +
-		smallcaps("powered by") + " : " + smallcaps("gomusic") + "\n" +
-		smallcaps("yt music api powered by") + " : " + smallcaps("aruyt api")
+		smallcaps("engine") + " : " + smallcaps("kanha room play") + "\n" +
+		smallcaps("powered by") + " : " + smallcaps("gomusic v2")
 	return wrapBQ(body)
 }
 
