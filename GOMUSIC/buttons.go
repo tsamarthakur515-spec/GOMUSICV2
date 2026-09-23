@@ -63,25 +63,25 @@ func ownerURL() string {
 
 func GetStartMarkup() [][]InlineBtn {
 	return [][]InlineBtn{
-		{styleURLBtn("+ лдд мє тσ уσур грσуп", BotLink+"?startgroup=true", ColourRed)},
-		{styleBtn("нєлп & сσммандs", "show_help", ColourGreen)},
-		{styleURLBtn("упдатєs", UpdatesChannel, ColourBlue), styleURLBtn("sуппσрт", SupportGroup, ColourGreen)},
-		{styleURLBtn("sσурсє сσдє", ownerURL(), ColourRed)},
+		{styleURLBtn("+ "+smallcaps("add me to your group"), BotLink+"?startgroup=true", ColourRed)},
+		{styleBtn(smallcaps("help and commands"), "show_help", ColourGreen)},
+		{styleURLBtn(smallcaps("updates"), UpdatesChannel, ColourBlue), styleURLBtn(smallcaps("support"), SupportGroup, ColourGreen)},
+		{styleURLBtn(smallcaps("source code"), ownerURL(), ColourRed)},
 	}
 }
 
 func GetAboutMarkup() [][]InlineBtn {
 	return [][]InlineBtn{
-		{styleBtn(" васк", "go_back", ColourRed)},
+		{styleBtn(smallcaps("back"), "go_back", ColourRed)},
 	}
 }
 
 func GetHelpMarkup() [][]InlineBtn {
 	return [][]InlineBtn{
-		{styleBtn("адмɪη", "help_admin", ColourRed), styleBtn("аутн", "help_auth", ColourBlue), styleBtn("в-саsт", "help_gcast", ColourGreen)},
-		{styleBtn("плау", "help_play", ColourRed), styleBtn("sудσ", "help_sudo", ColourBlue), styleBtn("рєsтрɪст", "help_restrict", ColourGreen)},
-		{styleBtn("sтарт", "help_start", ColourRed), styleBtn("аутσплау", "help_autoplay", ColourBlue), styleBtn("ɪηлɪηє", "help_inline", ColourGreen)},
-		{styleBtn(" васк", "go_back", ColourRed)},
+		{styleBtn(smallcaps("admin"), "help_admin", ColourRed), styleBtn(smallcaps("auth"), "help_auth", ColourBlue), styleBtn(smallcaps("bcast"), "help_gcast", ColourGreen)},
+		{styleBtn(smallcaps("play"), "help_play", ColourRed), styleBtn(smallcaps("sudo"), "help_sudo", ColourBlue), styleBtn(smallcaps("restrict"), "help_restrict", ColourGreen)},
+		{styleBtn(smallcaps("start"), "help_start", ColourRed), styleBtn(smallcaps("autoplay"), "help_autoplay", ColourBlue), styleBtn(smallcaps("inline"), "help_inline", ColourGreen)},
+		{styleBtn(smallcaps("back"), "go_back", ColourRed)},
 	}
 }
 
@@ -89,13 +89,13 @@ func GetHelpHomeMarkup() [][]InlineBtn { return GetHelpMarkup() }
 
 func GetBackMarkup() [][]InlineBtn {
 	return [][]InlineBtn{
-		{styleBtn(" васк", "show_help", ColourRed)},
+		{styleBtn(smallcaps("back"), "show_help", ColourRed)},
 	}
 }
 
 func GetGroupStartMarkup() [][]InlineBtn {
 	return [][]InlineBtn{
-		{styleURLBtn(" сσммандs", BotLink+"?start=pm_help", ColourGreen)},
+		{styleURLBtn(smallcaps("commands"), BotLink+"?start=pm_help", ColourGreen)},
 	}
 }
 
@@ -110,16 +110,16 @@ func GetNowPlayingMarkup(bar string) [][]InlineBtn {
 			styleBtn("▢", "stop", ColourRed),
 		},
 		{styleBtn("-15s", "seek_back", ColourBlue), styleBtn("+15s", "seek_fwd", ColourGreen)},
-		{styleBtn("слσsє", "close_panel", ColourRed)},
+		{styleBtn(smallcaps("close"), "close_panel", ColourRed)},
 	}
 }
 
 func GetQueuedMarkup(chatID int64, index int) [][]InlineBtn {
 	return [][]InlineBtn{
 		{
-			styleBtn("▷ плау ησṡ", fmt.Sprintf("queue_now:%d:%d", chatID, index), ColourBlue),
-			styleBtn("‣‣I sкɪп", fmt.Sprintf("skip:%d", chatID), ColourGreen),
+			styleBtn(smallcaps("play now"), fmt.Sprintf("queue_now:%d:%d", chatID, index), ColourBlue),
+			styleBtn(smallcaps("skip"), fmt.Sprintf("skip:%d", chatID), ColourGreen),
 		},
-		{styleBtn("слσsє", "close_panel", ColourRed)},
+		{styleBtn(smallcaps("close"), "close_panel", ColourRed)},
 	}
 }
