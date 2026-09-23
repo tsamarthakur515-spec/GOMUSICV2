@@ -3,12 +3,14 @@ package main
 import (
 	"errors"
 	"fmt"
+	"log"
 	"math/rand"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/amarnathcjd/gogram/telegram"
+	"github.com/nikhil390u8o/GOMUSICV2/ntgcalls"
 )
 
 var (
@@ -17,10 +19,19 @@ var (
 	connectMu    sync.Mutex
 	streamEndMu  sync.Mutex
 	switching    sync.Map
+	liveSession  sync.Map
+	switchHold   = map[int64]int{}
 	currentPaths = map[int64]string{}
 	streamGen    = map[int64]int{}
 	streamAt     = map[int64]time.Time{}
 )
+
+func markLiveSession(chatID int64) { liveSession.Store(chatID, true) }
+func isLiveSession(chatID int64) bool {
+	_, ok := liveSession.Load(chatID)
+	return ok
+}
+func clearLiveSession(chatID int64) { liveSession.Delete(chatID) }
 
 func bumpStream(chatID int64) int {
 	connectMu.Lock()
@@ -30,22 +41,50 @@ func bumpStream(chatID int64) int {
 	return streamGen[chatID]
 }
 
-func beginSwitch(chatID int64) {
+func currentGen(chatID int64) int {
+	connectMu.Lock()
+	defer connectMu.Unlock()
+	return streamGen[chatID]
+}
+
+func holdSwitch(chatID int64) {
+	connectMu.Lock()
+	switchHold[chatID]++
+	connectMu.Unlock()
 	switching.Store(chatID, time.Now())
 	bumpStream(chatID)
 }
 
-func endSwitch(chatID int64) {
-	bumpStream(chatID)
+func releaseSwitch(chatID int64) {
+	connectMu.Lock()
+	if switchHold[chatID] > 0 {
+		switchHold[chatID]--
+	}
+	left := switchHold[chatID]
+	connectMu.Unlock()
+	switching.Store(chatID, time.Now())
+	if left <= 0 {
+		bumpStream(chatID)
+	}
 }
 
+func beginSwitch(chatID int64) { holdSwitch(chatID) }
+
+func endSwitch(chatID int64) { releaseSwitch(chatID) }
+
 func isSwitching(chatID int64) bool {
+	connectMu.Lock()
+	held := switchHold[chatID] > 0
+	connectMu.Unlock()
+	if held {
+		return true
+	}
 	v, ok := switching.Load(chatID)
 	if !ok {
 		return false
 	}
 	t, _ := v.(time.Time)
-	return time.Since(t) < 25*time.Second
+	return time.Since(t) < 20*time.Second
 }
 
 func setCurrentPath(chatID int64, path string) {
@@ -72,7 +111,11 @@ func hasLocalCall(chatID int64) bool {
 }
 
 func leaveVCNow(chatID int64) {
+	connectMu.Lock()
+	switchHold[chatID] = 0
+	connectMu.Unlock()
 	switching.Delete(chatID)
+	clearLiveSession(chatID)
 	bumpStream(chatID)
 	stopAutoplay(chatID)
 	for _, song := range clearQueue(chatID) {
@@ -89,30 +132,19 @@ func leaveVCNow(chatID int64) {
 }
 
 func leaveVC(chatID int64) {
-	if isSwitching(chatID) {
+	if isSwitching(chatID) || isLiveSession(chatID) {
 		return
 	}
 	leaveVCNow(chatID)
 }
 
 func changeStream(chatID int64) error {
-	beginSwitch(chatID)
-	done := popCurrent(chatID)
-	if done != nil {
-		deleteFile(done.FilePath)
-	}
-	nxt := peekCurrent(chatID)
-	if nxt == nil {
-		leaveVCNow(chatID)
-		_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("queue is empty, left vc")), nil)
-		return fmt.Errorf("queue empty")
-	}
-	msg, _ := sendHTML(Bot, chatID, wrapBQ(smallcaps("processing...")), nil)
-	return playSongOpt(chatID, msg, *nxt, true)
+	return RoomChangeStream(chatID)
 }
 
 func handleStreamEnd(chatID int64) {
 	if isSwitching(chatID) {
+		log.Println("stream-end ignored (switch hold)", chatID)
 		return
 	}
 	streamEndMu.Lock()
@@ -123,10 +155,17 @@ func handleStreamEnd(chatID int64) {
 	connectMu.Lock()
 	started := streamAt[chatID]
 	connectMu.Unlock()
-	if started.IsZero() || time.Since(started) < 15*time.Second {
+	if started.IsZero() || time.Since(started) < 12*time.Second {
+		log.Println("stream-end ignored (too soon)", chatID)
 		return
 	}
-	_ = changeStream(chatID)
+	if peekCurrent(chatID) == nil && peekNext(chatID) == nil {
+		if !isLiveSession(chatID) {
+			leaveVCNow(chatID)
+		}
+		return
+	}
+	_ = RoomChangeStream(chatID)
 }
 
 func ensureVC(chatID int64) error {
@@ -215,4 +254,74 @@ func startNTGStream(chatID int64, path string, video bool, seekSec int) error {
 	}
 	media := buildMedia(path, video, seekSec)
 	return startNTGStreamWithMedia(chatID, media, video)
+}
+
+func ntgPlay(chatID int64, media ntgcalls.MediaDescription, video bool) error {
+	if Calls == nil {
+		return errors.New("ntgcalls not ready")
+	}
+	if hasLocalCall(chatID) {
+		return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
+	}
+	if _, err := resolveActiveCall(chatID); err == nil {
+		return joinExistingCall(chatID, media, video)
+	}
+	return startNTGStreamWithMedia(chatID, media, video)
+}
+
+func joinExistingCall(chatID int64, media ntgcalls.MediaDescription, video bool) error {
+	if Calls == nil {
+		return errors.New("ntgcalls not ready")
+	}
+	if hasLocalCall(chatID) {
+		return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
+	}
+	inputCall, err := resolveActiveCall(chatID)
+	if err != nil {
+		return err
+	}
+	local, err := Calls.CreateCall(chatID)
+	if err != nil {
+		low := strings.ToLower(err.Error())
+		if strings.Contains(low, "already") && hasLocalCall(chatID) {
+			return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
+		}
+		return err
+	}
+	if err := Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media); err != nil {
+		return err
+	}
+	me, err := Assistant.GetMe()
+	if err != nil {
+		return err
+	}
+	updates, err := Assistant.PhoneJoinGroupCall(&telegram.PhoneJoinGroupCallParams{
+		Call:         inputCall,
+		JoinAs:       &telegram.InputPeerUser{UserID: me.ID, AccessHash: me.AccessHash},
+		VideoStopped: !video,
+		Muted:        false,
+		Params:       &telegram.DataJson{Data: local},
+	})
+	if err != nil {
+		if alreadyJoinedError(err) {
+			activeCalls[chatID] = inputCall
+			callIsVideo[chatID] = video
+			return nil
+		}
+		return err
+	}
+	remote := "{\"transport\": null}"
+	if u, ok := updates.(*telegram.UpdatesObj); ok {
+		for _, upd := range u.Updates {
+			if conn, ok := upd.(*telegram.UpdateGroupCallConnection); ok && conn.Params != nil {
+				remote = conn.Params.Data
+			}
+		}
+	}
+	if err := Calls.Connect(chatID, remote, false); err != nil {
+		return err
+	}
+	activeCalls[chatID] = inputCall
+	callIsVideo[chatID] = video
+	return nil
 }
