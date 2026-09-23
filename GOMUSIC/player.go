@@ -6,7 +6,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/amarnathcjd/gogram/telegram"
@@ -84,7 +83,6 @@ func playSong(chatID int64, message *telegram.NewMessage, song Song) error {
 
 func playSongOpt(chatID int64, message *telegram.NewMessage, song Song, stayInCall bool) error {
 	beginSwitch(chatID)
-	defer endSwitch(chatID)
 
 	loading := wrapBQ("<b>" + smallcaps("loading") + "...</b>\n" + richEsc(shortTitle(song.Title, 40)))
 	if message != nil {
@@ -135,18 +133,18 @@ func playSongOpt(chatID int64, message *telegram.NewMessage, song Song, stayInCa
 		playPath = src.Audio
 	}
 	setCurrentPath(chatID, playPath)
+	beginSwitch(chatID)
 
 	media := buildMediaAV(src.Audio, src.Video, song.Video, 0)
 	var startErr error
-	if hasLocalCall(chatID) && Calls != nil {
+	if stayInCall && Calls != nil {
 		startErr = Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
-	}
-	if startErr != nil || !hasLocalCall(chatID) {
+		if startErr != nil {
+			log.Println("stay-in-call set sources:", startErr)
+		}
+	} else {
 		startErr = startNTGStreamWithMedia(chatID, media, song.Video)
-	}
-	if startErr != nil && !stayInCall {
-		low := strings.ToLower(startErr.Error())
-		if strings.Contains(low, "no active") || strings.Contains(low, "groupcall") {
+		if startErr != nil {
 			_ = ensureVC(chatID)
 			startErr = startNTGStreamWithMedia(chatID, media, song.Video)
 		}
@@ -157,6 +155,7 @@ func playSongOpt(chatID int64, message *telegram.NewMessage, song Song, stayInCa
 		return startErr
 	}
 
+	callIsVideo[chatID] = song.Video
 	addServedChat(chatID)
 	incrementPlayCount(chatID)
 	total := float64(parseDur(song.Duration))
