@@ -176,28 +176,13 @@ func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 	case data == "start" || data == "go_back":
 		_, _ = cb.Answer("")
 		showQuotedMenu(cb, startInner(cb.Sender.ID, sanitizeDisplayName(cb.Sender.FirstName)), GetStartMarkup())
-	case data == "help_cb" || data == "show_help" || data == "help:main":
+	case data == "help_cb" || data == "show_help" || data == "help:main" || data == "help_main":
 		_, _ = cb.Answer("")
-		showQuotedMenu(cb, helpMainHTML(), GetHelpHomeMarkup())
+		openHelpPage(cb, "main")
 	default:
-		if strings.HasPrefix(data, "help:") {
+		if key := helpKeyFromData(data); key != "" {
 			_, _ = cb.Answer("")
-			key := strings.TrimPrefix(data, "help:")
-			if key == "main" {
-				showQuotedMenu(cb, helpMainHTML(), GetHelpHomeMarkup())
-				return nil
-			}
-			if body, ok := kanhaHelp[key]; ok {
-				showQuotedMenu(cb, body, GetBackMarkup())
-			}
-		} else if strings.HasPrefix(data, "help_") {
-			_, _ = cb.Answer("")
-			key := strings.TrimPrefix(data, "help_")
-			if body, ok := kanhaHelp[key]; ok {
-				showQuotedMenu(cb, body, GetBackMarkup())
-			} else {
-				showQuotedMenu(cb, helpMainHTML(), GetHelpHomeMarkup())
-			}
+			openHelpPage(cb, key)
 		}
 	}
 	return nil
