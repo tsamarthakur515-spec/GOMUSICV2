@@ -7,31 +7,27 @@ import (
 	"github.com/nikhil390u8o/GOMUSICV2/ntgcalls"
 )
 
-// RoomPlay mirrors Kanha RoomState.Play:
-//   - if something is already playing and force is false, only append to queue
-//   - otherwise start/replace the stream on the SAME ntgcalls call (no leave/rejoin)
 func RoomPlay(chatID int64, song Song, force bool, msg *telegram.NewMessage) error {
 	if !force && isBusy(chatID) {
 		pos := addToQueue(chatID, song)
-		body := smallcaps("added to queue") + "\n\n" +
-			smallcaps("title") + " : " + richEsc(shortTitle(song.Title, 42)) + "\n" +
-			smallcaps("duration") + " : " + richEsc(song.Duration) + "\n" +
-			smallcaps("position") + " : " + fmt.Sprintf("%d", pos)
+		body := "<blockquote><b>杵 incoming track detected : #" + fmt.Sprintf("%d", pos-1) + "</b></blockquote>\n" +
+			"<blockquote expandable><b>Ἰb melody :</b> " + richEsc(shortTitle(song.Title, 42)) + "\n" +
+			"<b>✨ length :</b> " + richEsc(song.Duration) + "\n" +
+			"<b>ᾔ0 requester :</b> " + richEsc(song.Requester) + "\n\n" +
+			"Ὁ0 standby, your session begins shortly</blockquote>"
 		if msg != nil {
-			_ = editHTML(msg, wrapBQ(body), gogramMarkup(GetQueuedMarkup(chatID, pos-1)))
+			_ = editHTML(msg, body, gogramMarkup(GetQueuedMarkup(chatID, pos-1)))
 		} else {
-			_, _ = sendHTML(Bot, chatID, wrapBQ(body), gogramMarkup(GetQueuedMarkup(chatID, pos-1)))
+			_, _ = sendHTML(Bot, chatID, body, gogramMarkup(GetQueuedMarkup(chatID, pos-1)))
 		}
 		return nil
 	}
-
 	if peekCurrent(chatID) == nil || peekCurrent(chatID).URL != song.URL {
 		addToQueue(chatID, song)
 	}
-	return playSongOpt(chatID, msg, song, force || shouldStayInCall(chatID))
+	return playSongOpt(chatID, msg, song, force || shouldStayInCall(chatID) || isLiveSession(chatID))
 }
 
-// RoomNextTrack mirrors Kanha NextTrack: drop current, return next queued song.
 func RoomNextTrack(chatID int64) *Song {
 	done := popCurrent(chatID)
 	if done != nil {
@@ -40,7 +36,6 @@ func RoomNextTrack(chatID int64) *Song {
 	return peekCurrent(chatID)
 }
 
-// RoomChangeStream mirrors Kanha skip: next track + force Play on the same call.
 func RoomChangeStream(chatID int64) error {
 	beginSwitch(chatID)
 	nxt := RoomNextTrack(chatID)
@@ -51,6 +46,37 @@ func RoomChangeStream(chatID int64) error {
 	}
 	msg, _ := sendHTML(Bot, chatID, wrapBQ(smallcaps("processing...")), nil)
 	return playSongOpt(chatID, msg, *nxt, true)
+}
+
+func RoomPlayNow(chatID int64, index int) error {
+	beginSwitch(chatID)
+	q := getQueue(chatID)
+	if len(q) == 0 {
+		return fmt.Errorf("queue empty")
+	}
+	if index <= 0 || index >= len(q) {
+		if len(q) > 1 {
+			index = 1
+		} else {
+			return fmt.Errorf("song not in queue")
+		}
+	}
+	song := q[index]
+	rest := make([]Song, 0, len(q)-1)
+	for i, s := range q {
+		if i == 0 || i == index {
+			continue
+		}
+		rest = append(rest, s)
+	}
+	queueMu.Lock()
+	chatQueues[chatID] = append([]Song{song}, rest...)
+	queueMu.Unlock()
+	if q[0].FilePath != "" && q[0].URL != song.URL {
+		deleteFile(q[0].FilePath)
+	}
+	msg, _ := sendHTML(Bot, chatID, wrapBQ(smallcaps("processing...")), nil)
+	return playSongOpt(chatID, msg, song, true)
 }
 
 func ntgPlaySameCall(chatID int64, media ntgcalls.MediaDescription) error {
