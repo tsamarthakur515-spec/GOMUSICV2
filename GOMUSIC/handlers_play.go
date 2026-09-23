@@ -97,19 +97,21 @@ func processPlay(m *telegram.NewMessage, query string, video bool) error {
 }
 
 func skipCurrent(chatID int64) error {
-	bumpStream(chatID)
+	beginSwitch(chatID)
 	skipped := popCurrent(chatID)
 	if skipped != nil {
 		deleteFile(skipped.FilePath)
 	}
 	nxt := peekCurrent(chatID)
 	if nxt == nil {
-		if Calls != nil {
-			_ = Calls.Stop(chatID)
-		}
+		endSwitch(chatID)
 		return fmt.Errorf("queue empty")
 	}
-	return playSong(chatID, nil, *nxt)
+	err := playSong(chatID, nil, *nxt)
+	if err != nil {
+		endSwitch(chatID)
+	}
+	return err
 }
 
 func assistantIn(chatID int64) (present bool, banned bool) {
