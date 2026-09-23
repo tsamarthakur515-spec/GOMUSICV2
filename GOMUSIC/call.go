@@ -16,6 +16,7 @@ var (
 	connectWait  = map[int64]chan error{}
 	connectMu    sync.Mutex
 	streamEndMu  sync.Mutex
+	switching    sync.Map
 	currentPaths = map[int64]string{}
 	streamGen    = map[int64]int{}
 	streamAt     = map[int64]time.Time{}
@@ -27,6 +28,25 @@ func bumpStream(chatID int64) int {
 	streamGen[chatID]++
 	streamAt[chatID] = time.Now()
 	return streamGen[chatID]
+}
+
+func beginSwitch(chatID int64) {
+	switching.Store(chatID, time.Now())
+	bumpStream(chatID)
+}
+
+func endSwitch(chatID int64) {
+	switching.Delete(chatID)
+	bumpStream(chatID)
+}
+
+func isSwitching(chatID int64) bool {
+	v, ok := switching.Load(chatID)
+	if !ok {
+		return false
+	}
+	t, _ := v.(time.Time)
+	return time.Since(t) < 90*time.Second
 }
 
 func setCurrentPath(chatID int64, path string) {
@@ -69,14 +89,19 @@ func leaveVC(chatID int64) {
 }
 
 func handleStreamEnd(chatID int64) {
+	if isSwitching(chatID) {
+		return
+	}
 	streamEndMu.Lock()
 	defer streamEndMu.Unlock()
+	if isSwitching(chatID) {
+		return
+	}
 
 	connectMu.Lock()
 	started := streamAt[chatID]
-	gen := streamGen[chatID]
 	connectMu.Unlock()
-	if started.IsZero() || time.Since(started) < 3*time.Second {
+	if started.IsZero() || time.Since(started) < 4*time.Second {
 		return
 	}
 
@@ -92,7 +117,6 @@ func handleStreamEnd(chatID int64) {
 	}
 	leaveVC(chatID)
 	_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("queue finished")), nil)
-	_ = gen
 }
 
 func ensureVC(chatID int64) error {
