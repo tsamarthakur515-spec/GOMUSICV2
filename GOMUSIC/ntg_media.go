@@ -115,7 +115,7 @@ func startNTGStreamWithMedia(chatID int64, media ntgcalls.MediaDescription, vide
 	if Calls == nil {
 		return fmt.Errorf("ntgcalls not ready")
 	}
-	if Calls.Calls()[chatID] != nil {
+	if hasLocalCall(chatID) {
 		bumpStream(chatID)
 		return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
 	}
@@ -128,37 +128,42 @@ func startNTGStreamPrebuilt(chatID int64, media ntgcalls.MediaDescription, video
 	}
 	var last error
 	for attempt := 1; attempt <= 3; attempt++ {
+		if hasLocalCall(chatID) {
+			bumpStream(chatID)
+			return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
+		}
 		inputCall, err := resolveActiveCall(chatID)
 		if err != nil {
-			if e := ensureVC(chatID); e == nil {
-				inputCall, err = resolveActiveCall(chatID)
+			if e := ensureVC(chatID); e != nil {
+				last = e
+				time.Sleep(time.Duration(attempt) * time.Second)
+				continue
 			}
+			inputCall, err = resolveActiveCall(chatID)
 			if err != nil {
 				last = err
 				time.Sleep(time.Duration(attempt) * time.Second)
 				continue
 			}
 		}
-		if Calls.Calls()[chatID] != nil {
-			_ = Calls.Stop(chatID)
-			time.Sleep(300 * time.Millisecond)
-		}
 		local, err := Calls.CreateCall(chatID)
 		if err != nil {
-			_ = Calls.Stop(chatID)
+			low := strings.ToLower(err.Error())
+			if strings.Contains(low, "already") && hasLocalCall(chatID) {
+				bumpStream(chatID)
+				return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
+			}
 			last = err
 			time.Sleep(800 * time.Millisecond)
 			continue
 		}
 		if err := Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media); err != nil {
-			_ = Calls.Stop(chatID)
 			last = err
 			time.Sleep(800 * time.Millisecond)
 			continue
 		}
 		me, err := Assistant.GetMe()
 		if err != nil {
-			_ = Calls.Stop(chatID)
 			return err
 		}
 		wait := make(chan error, 1)
@@ -173,7 +178,12 @@ func startNTGStreamPrebuilt(chatID int64, media ntgcalls.MediaDescription, video
 			Params:       &telegram.DataJson{Data: local},
 		})
 		if err != nil {
-			_ = Calls.Stop(chatID)
+			if alreadyJoinedError(err) {
+				activeCalls[chatID] = inputCall
+				callIsVideo[chatID] = video
+				bumpStream(chatID)
+				return nil
+			}
 			last = err
 			if shouldRetryJoin(err) && attempt < 3 {
 				time.Sleep(time.Duration(attempt+1) * time.Second)
@@ -190,7 +200,6 @@ func startNTGStreamPrebuilt(chatID int64, media ntgcalls.MediaDescription, video
 			}
 		}
 		if err := Calls.Connect(chatID, remote, false); err != nil {
-			_ = Calls.Stop(chatID)
 			last = err
 			time.Sleep(800 * time.Millisecond)
 			continue
