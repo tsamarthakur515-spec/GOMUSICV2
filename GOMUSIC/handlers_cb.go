@@ -84,7 +84,7 @@ func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 				chatID = id
 			}
 		}
-		if err := skipCurrent(chatID); err != nil {
+		if err := RoomChangeStream(chatID); err != nil {
 			_, _ = cb.Answer("queue empty", alert)
 			return nil
 		}
@@ -101,12 +101,12 @@ func handleCallbackQuery(cb *telegram.CallbackQuery) error {
 		} else {
 			idx, err = strconv.Atoi(parts[0])
 		}
-		if err != nil || !moveAfterCurrent(chatID, idx) {
+		if err != nil {
 			_, _ = cb.Answer("song not in queue", alert)
 			return nil
 		}
-		if err := skipCurrent(chatID); err != nil {
-			_, _ = cb.Answer("queue empty", alert)
+		if err := RoomPlayNow(chatID, idx); err != nil {
+			_, _ = cb.Answer(err.Error(), alert)
 			return nil
 		}
 		_, _ = cb.Answer("playing now")

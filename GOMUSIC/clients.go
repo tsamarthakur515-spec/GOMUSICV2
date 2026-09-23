@@ -117,9 +117,23 @@ func initClients() error {
 
 	Calls = &callAPI{Client: ntgcalls.NTgCalls()}
 	Calls.OnStreamEnd(func(chat int64, t ntgcalls.StreamType, d ntgcalls.StreamDevice) {
+		if isSwitching(chat) {
+			return
+		}
+		connectMu.Lock()
+		started := streamAt[chat]
+		connectMu.Unlock()
+		if isLiveSession(chat) && (started.IsZero() || time.Since(started) < 8*time.Second) {
+			return
+		}
 		go handleStreamEnd(chat)
 	})
 	Calls.OnConnectionChange(func(chat int64, info ntgcalls.NetworkInfo) {
+		if info.State == ntgcalls.Closed || info.State == ntgcalls.Failed {
+			if isSwitching(chat) || isLiveSession(chat) {
+				return
+			}
+		}
 		connectMu.Lock()
 		ch := connectWait[chat]
 		connectMu.Unlock()
