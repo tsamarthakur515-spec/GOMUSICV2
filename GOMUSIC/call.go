@@ -47,6 +47,10 @@ func currentPath(chatID int64) string {
 	return currentPaths[chatID]
 }
 
+func hasLocalCall(chatID int64) bool {
+	return Calls != nil && Calls.Calls()[chatID] != nil
+}
+
 func leaveVC(chatID int64) {
 	bumpStream(chatID)
 	stopAutoplay(chatID)
@@ -96,6 +100,9 @@ func handleStreamEnd(chatID int64) {
 }
 
 func ensureVC(chatID int64) error {
+	if _, err := resolveActiveCall(chatID); err == nil {
+		return nil
+	}
 	peer, err := Assistant.ResolvePeer(chatID)
 	if err != nil {
 		return err
@@ -116,6 +123,9 @@ func ensureVC(chatID int64) error {
 }
 
 func resolveActiveCall(chatID int64) (telegram.InputGroupCall, error) {
+	if call, ok := activeCalls[chatID]; ok && call != nil {
+		return call, nil
+	}
 	peer, err := Assistant.ResolvePeer(chatID)
 	if err != nil {
 		return nil, err
@@ -157,6 +167,16 @@ func shouldRetryJoin(err error) bool {
 		strings.Contains(low, "flood") ||
 		strings.Contains(low, "500") ||
 		strings.Contains(low, "503")
+}
+
+func alreadyJoinedError(err error) bool {
+	if err == nil {
+		return false
+	}
+	low := strings.ToLower(err.Error())
+	return strings.Contains(low, "already") ||
+		strings.Contains(low, "participant_join") ||
+		strings.Contains(low, "joined")
 }
 
 func startNTGStream(chatID int64, path string, video bool, seekSec int) error {
