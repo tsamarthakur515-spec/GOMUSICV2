@@ -51,7 +51,9 @@ func processPlay(m *telegram.NewMessage, query string, video bool) error {
 			}
 		}
 		_ = promoteAssistant(chatID)
-		go func() { _ = ensureVC(chatID) }()
+		if !shouldStayInCall(chatID) {
+			go func() { _ = ensureVC(chatID) }()
+		}
 	}
 	if strings.Contains(query, "youtu.be/") {
 		if parts := strings.Split(query, "youtu.be/"); len(parts) > 1 {
@@ -72,32 +74,26 @@ func processPlay(m *telegram.NewMessage, query string, video bool) error {
 	reqID := userIDOf(m)
 	if len(playlist) > 0 {
 		firstEmpty := !already && queueSize(chatID) == 0
-		for _, item := range playlist {
-			addToQueue(chatID, Song{URL: item.Link, Title: item.Title, Duration: isoToHuman(item.Duration), DurationSeconds: isoToSec(item.Duration), Requester: req, RequesterID: reqID, Thumbnail: item.Thumbnail, Video: video})
+		var first Song
+		for i, item := range playlist {
+			s := Song{URL: item.Link, Title: item.Title, Duration: isoToHuman(item.Duration), DurationSeconds: isoToSec(item.Duration), Requester: req, RequesterID: reqID, Thumbnail: item.Thumbnail, Video: video}
+			if i == 0 {
+				first = s
+			}
+			addToQueue(chatID, s)
 		}
 		if firstEmpty {
-			if first := peekCurrent(chatID); first != nil {
-				return playSong(chatID, pm, *first)
-			}
+			return playSongOpt(chatID, pm, first, true)
 		}
 		_ = editHTML(pm, wrapBQ(smallcaps("playlist queued")+"\n"+fmt.Sprintf("%d", len(playlist))+" "+smallcaps("tracks")), gogramMarkup(GetQueuedMarkup(chatID, 1)))
 		return nil
 	}
 	song := Song{URL: urlStr, Title: title, Duration: isoToHuman(durISO), DurationSeconds: parseDur(durISO), Requester: req, RequesterID: reqID, Thumbnail: thumb, Video: video}
-	pos := addToQueue(chatID, song)
-	if !already && pos == 1 {
-		return playSong(chatID, pm, song)
-	}
-	body := smallcaps("added to queue") + "\n\n" +
-		smallcaps("title") + " : " + richEsc(shortTitle(title, 42)) + "\n" +
-		smallcaps("duration") + " : " + richEsc(isoToHuman(durISO)) + "\n" +
-		smallcaps("position") + " : " + fmt.Sprintf("%d", pos)
-	_ = editHTML(pm, wrapBQ(body), gogramMarkup(GetQueuedMarkup(chatID, pos-1)))
-	return nil
+	return RoomPlay(chatID, song, false, pm)
 }
 
 func skipCurrent(chatID int64) error {
-	return changeStream(chatID)
+	return RoomChangeStream(chatID)
 }
 
 func assistantIn(chatID int64) (present bool, banned bool) {
