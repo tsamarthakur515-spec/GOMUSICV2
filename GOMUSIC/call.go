@@ -24,7 +24,16 @@ var (
 	currentPaths = map[int64]string{}
 	streamGen    = map[int64]int{}
 	streamAt     = map[int64]time.Time{}
+	joinParams   = map[int64]string{}
+	chatPlayMu   sync.Map
 )
+
+func lockChatPlay(chatID int64) func() {
+	v, _ := chatPlayMu.LoadOrStore(chatID, &sync.Mutex{})
+	mu := v.(*sync.Mutex)
+	mu.Lock()
+	return mu.Unlock
+}
 
 func markLiveSession(chatID int64) { liveSession.Store(chatID, true) }
 func isLiveSession(chatID int64) bool {
@@ -69,8 +78,7 @@ func releaseSwitch(chatID int64) {
 }
 
 func beginSwitch(chatID int64) { holdSwitch(chatID) }
-
-func endSwitch(chatID int64) { releaseSwitch(chatID) }
+func endSwitch(chatID int64)   { releaseSwitch(chatID) }
 
 func isSwitching(chatID int64) bool {
 	connectMu.Lock()
@@ -110,9 +118,14 @@ func hasLocalCall(chatID int64) bool {
 	return Calls != nil && Calls.Calls()[chatID] != nil
 }
 
+func clearCallCache(chatID int64) {
+	delete(activeCalls, chatID)
+}
+
 func leaveVCNow(chatID int64) {
 	connectMu.Lock()
 	switchHold[chatID] = 0
+	delete(joinParams, chatID)
 	connectMu.Unlock()
 	switching.Delete(chatID)
 	clearLiveSession(chatID)
@@ -169,7 +182,7 @@ func handleStreamEnd(chatID int64) {
 }
 
 func ensureVC(chatID int64) error {
-	if _, err := resolveActiveCall(chatID); err == nil {
+	if _, err := fetchLiveCall(chatID); err == nil {
 		return nil
 	}
 	peer, err := Assistant.ResolvePeer(chatID)
@@ -187,14 +200,12 @@ func ensureVC(chatID int64) error {
 		}
 		return err
 	}
-	time.Sleep(2 * time.Second)
+	time.Sleep(1500 * time.Millisecond)
 	return nil
 }
 
-func resolveActiveCall(chatID int64) (telegram.InputGroupCall, error) {
-	if call, ok := activeCalls[chatID]; ok && call != nil {
-		return call, nil
-	}
+// fetchLiveCall always asks Telegram. Never trust activeCalls cache.
+func fetchLiveCall(chatID int64) (telegram.InputGroupCall, error) {
 	peer, err := Assistant.ResolvePeer(chatID)
 	if err != nil {
 		return nil, err
@@ -225,9 +236,27 @@ func resolveActiveCall(chatID int64) (telegram.InputGroupCall, error) {
 	}
 }
 
+func resolveActiveCall(chatID int64) (telegram.InputGroupCall, error) {
+	return fetchLiveCall(chatID)
+}
+
+func invalidCallErr(err error) bool {
+	if err == nil {
+		return false
+	}
+	low := strings.ToLower(err.Error())
+	return strings.Contains(low, "groupcall_invalid") ||
+		strings.Contains(low, "groupcall_forbidden") ||
+		strings.Contains(low, "groupcall_not_modified") ||
+		strings.Contains(low, "join_as_peer_invalid")
+}
+
 func shouldRetryJoin(err error) bool {
 	if err == nil {
 		return false
+	}
+	if invalidCallErr(err) {
+		return true
 	}
 	low := strings.ToLower(err.Error())
 	return strings.Contains(low, "interdc") ||
@@ -260,68 +289,123 @@ func ntgPlay(chatID int64, media ntgcalls.MediaDescription, video bool) error {
 	if Calls == nil {
 		return errors.New("ntgcalls not ready")
 	}
-	if hasLocalCall(chatID) {
+	if hasLocalCall(chatID) && isLiveSession(chatID) {
 		return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
 	}
-	if _, err := resolveActiveCall(chatID); err == nil {
-		return joinExistingCall(chatID, media, video)
-	}
-	return startNTGStreamWithMedia(chatID, media, video)
+	return joinExistingCall(chatID, media, video)
 }
 
 func joinExistingCall(chatID int64, media ntgcalls.MediaDescription, video bool) error {
 	if Calls == nil {
 		return errors.New("ntgcalls not ready")
 	}
-	if hasLocalCall(chatID) {
+	if hasLocalCall(chatID) && isLiveSession(chatID) {
 		return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
 	}
-	inputCall, err := resolveActiveCall(chatID)
-	if err != nil {
-		return err
+
+	var local string
+	if hasLocalCall(chatID) {
+		connectMu.Lock()
+		local = joinParams[chatID]
+		connectMu.Unlock()
 	}
-	local, err := Calls.CreateCall(chatID)
-	if err != nil {
-		low := strings.ToLower(err.Error())
-		if strings.Contains(low, "already") && hasLocalCall(chatID) {
-			return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
+	if local == "" {
+		if hasLocalCall(chatID) {
+			_ = Calls.Stop(chatID)
 		}
-		return err
+		created, err := Calls.CreateCall(chatID)
+		if err != nil {
+			low := strings.ToLower(err.Error())
+			if strings.Contains(low, "already") && hasLocalCall(chatID) {
+				connectMu.Lock()
+				local = joinParams[chatID]
+				connectMu.Unlock()
+				if local == "" {
+					return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
+				}
+			} else {
+				return err
+			}
+		} else {
+			local = created
+		}
+		connectMu.Lock()
+		joinParams[chatID] = local
+		connectMu.Unlock()
 	}
+
 	if err := Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media); err != nil {
 		return err
 	}
+
 	me, err := Assistant.GetMe()
 	if err != nil {
 		return err
 	}
-	updates, err := Assistant.PhoneJoinGroupCall(&telegram.PhoneJoinGroupCallParams{
-		Call:         inputCall,
-		JoinAs:       &telegram.InputPeerUser{UserID: me.ID, AccessHash: me.AccessHash},
-		VideoStopped: !video,
-		Muted:        false,
-		Params:       &telegram.DataJson{Data: local},
-	})
-	if err != nil {
-		if alreadyJoinedError(err) {
-			activeCalls[chatID] = inputCall
-			callIsVideo[chatID] = video
-			return nil
-		}
-		return err
-	}
-	remote := "{\"transport\": null}"
-	if u, ok := updates.(*telegram.UpdatesObj); ok {
-		for _, upd := range u.Updates {
-			if conn, ok := upd.(*telegram.UpdateGroupCallConnection); ok && conn.Params != nil {
-				remote = conn.Params.Data
+
+	var last error
+	for attempt := 1; attempt <= 3; attempt++ {
+		inputCall, err := fetchLiveCall(chatID)
+		if err != nil {
+			if e := ensureVC(chatID); e != nil {
+				last = e
+				time.Sleep(time.Duration(attempt) * time.Second)
+				continue
+			}
+			inputCall, err = fetchLiveCall(chatID)
+			if err != nil {
+				last = err
+				time.Sleep(time.Duration(attempt) * time.Second)
+				continue
 			}
 		}
+
+		updates, err := Assistant.PhoneJoinGroupCall(&telegram.PhoneJoinGroupCallParams{
+			Call:         inputCall,
+			JoinAs:       &telegram.InputPeerUser{UserID: me.ID, AccessHash: me.AccessHash},
+			VideoStopped: !video,
+			Muted:        false,
+			Params:       &telegram.DataJson{Data: local},
+		})
+		if err != nil {
+			last = err
+			if alreadyJoinedError(err) {
+				activeCalls[chatID] = inputCall
+				callIsVideo[chatID] = video
+				return nil
+			}
+			if invalidCallErr(err) {
+				log.Println("join stale call, refetch", chatID, err)
+				clearCallCache(chatID)
+				time.Sleep(800 * time.Millisecond)
+				continue
+			}
+			if shouldRetryJoin(err) && attempt < 3 {
+				time.Sleep(time.Duration(attempt+1) * time.Second)
+				continue
+			}
+			return err
+		}
+
+		remote := "{\"transport\": null}"
+		if u, ok := updates.(*telegram.UpdatesObj); ok {
+			for _, upd := range u.Updates {
+				if conn, ok := upd.(*telegram.UpdateGroupCallConnection); ok && conn.Params != nil {
+					remote = conn.Params.Data
+				}
+			}
+		}
+		if err := Calls.Connect(chatID, remote, false); err != nil {
+			last = err
+			time.Sleep(800 * time.Millisecond)
+			continue
+		}
+		activeCalls[chatID] = inputCall
+		callIsVideo[chatID] = video
+		return nil
 	}
-	if err := Calls.Connect(chatID, remote, false); err != nil {
-		return err
+	if last == nil {
+		last = fmt.Errorf("join call failed")
 	}
-	activeCalls[chatID] = inputCall
-	callIsVideo[chatID] = video
-	return nil
+	return last
 }
