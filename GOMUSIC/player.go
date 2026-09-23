@@ -12,19 +12,11 @@ import (
 )
 
 func nowPlayingCaption(song Song) string {
-	link := richEsc(song.URL)
-	if link == "" {
-		link = "#"
-	}
-	title := richEsc(shortTitle(song.Title, 48))
-	return "<blockquote><b>💮 " + smallcaps("playback activated") + " | " + smallcaps("enjoy the music") + " |</b></blockquote>\n" +
-		"<blockquote expandable>▫ <b>" + smallcaps("melody") + " :</b> <a href=\"" + link + "\">" + title + "</a>\n" +
-		"▫ <b>" + smallcaps("length") + " :</b> " + richEsc(song.Duration) + "\n" +
-		"▫ <b>" + smallcaps("requester") + " :</b> " + richEsc(song.Requester) + "</blockquote>"
+	return streamNowPlayingHTML(song)
 }
 
-func nowPlayingKB(elapsed, total float64) telegram.ReplyMarkup {
-	return gogramMarkup(GetNowPlayingMarkup(progressBar(elapsed, total)))
+func nowPlayingKB(chatID int64, elapsed, total float64) telegram.ReplyMarkup {
+	return gogramMarkup(GetNowPlayingMarkup(progressBar(elapsed, total), isAutoplay(chatID)))
 }
 
 func makePanelImage(cover, videoID string) string {
@@ -48,7 +40,7 @@ func makePanelImage(cover, videoID string) string {
 
 func sendNowPlaying(chatID int64, song Song) *telegram.NewMessage {
 	caption := nowPlayingCaption(song)
-	kb := nowPlayingKB(0, float64(parseDur(song.Duration)))
+	kb := nowPlayingKB(chatID, 0, float64(parseDur(song.Duration)))
 	vid := extractVideoID(song.URL)
 	cover := cacheThumb(thumbFor(song.URL, song.Thumbnail))
 	thumb := makePanelImage(cover, vid)
@@ -158,7 +150,7 @@ func updateProgress(chatID int64, msg *telegram.NewMessage, start time.Time, tot
 			elapsed = total
 		}
 		if msg != nil {
-			_ = editHTML(msg, nowPlayingCaption(song), nowPlayingKB(elapsed, total))
+			_ = editHTML(msg, nowPlayingCaption(song), nowPlayingKB(chatID, elapsed, total))
 		}
 		if total > 0 && elapsed >= total {
 			go handleStreamEnd(chatID)
