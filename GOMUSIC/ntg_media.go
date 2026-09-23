@@ -5,9 +5,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
-	"time"
 
-	"github.com/amarnathcjd/gogram/telegram"
 	"github.com/nikhil390u8o/GOMUSICV2/ntgcalls"
 )
 
@@ -115,102 +113,13 @@ func startNTGStreamWithMedia(chatID int64, media ntgcalls.MediaDescription, vide
 	if Calls == nil {
 		return fmt.Errorf("ntgcalls not ready")
 	}
-	if hasLocalCall(chatID) {
+	if hasLocalCall(chatID) && isLiveSession(chatID) {
 		bumpStream(chatID)
 		return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
 	}
-	return startNTGStreamPrebuilt(chatID, media, video)
+	return joinExistingCall(chatID, media, video)
 }
 
 func startNTGStreamPrebuilt(chatID int64, media ntgcalls.MediaDescription, video bool) error {
-	if Calls == nil {
-		return fmt.Errorf("ntgcalls not ready")
-	}
-	var last error
-	for attempt := 1; attempt <= 3; attempt++ {
-		if hasLocalCall(chatID) {
-			bumpStream(chatID)
-			return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
-		}
-		inputCall, err := resolveActiveCall(chatID)
-		if err != nil {
-			if e := ensureVC(chatID); e != nil {
-				last = e
-				time.Sleep(time.Duration(attempt) * time.Second)
-				continue
-			}
-			inputCall, err = resolveActiveCall(chatID)
-			if err != nil {
-				last = err
-				time.Sleep(time.Duration(attempt) * time.Second)
-				continue
-			}
-		}
-		local, err := Calls.CreateCall(chatID)
-		if err != nil {
-			low := strings.ToLower(err.Error())
-			if strings.Contains(low, "already") && hasLocalCall(chatID) {
-				bumpStream(chatID)
-				return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
-			}
-			last = err
-			time.Sleep(800 * time.Millisecond)
-			continue
-		}
-		if err := Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media); err != nil {
-			last = err
-			time.Sleep(800 * time.Millisecond)
-			continue
-		}
-		me, err := Assistant.GetMe()
-		if err != nil {
-			return err
-		}
-		wait := make(chan error, 1)
-		connectMu.Lock()
-		connectWait[chatID] = wait
-		connectMu.Unlock()
-		updates, err := Assistant.PhoneJoinGroupCall(&telegram.PhoneJoinGroupCallParams{
-			Call:         inputCall,
-			JoinAs:       &telegram.InputPeerUser{UserID: me.ID, AccessHash: me.AccessHash},
-			VideoStopped: !video,
-			Muted:        false,
-			Params:       &telegram.DataJson{Data: local},
-		})
-		if err != nil {
-			if alreadyJoinedError(err) {
-				activeCalls[chatID] = inputCall
-				callIsVideo[chatID] = video
-				bumpStream(chatID)
-				return nil
-			}
-			last = err
-			if shouldRetryJoin(err) && attempt < 3 {
-				time.Sleep(time.Duration(attempt+1) * time.Second)
-				continue
-			}
-			return err
-		}
-		remote := "{\"transport\": null}"
-		if u, ok := updates.(*telegram.UpdatesObj); ok {
-			for _, upd := range u.Updates {
-				if conn, ok := upd.(*telegram.UpdateGroupCallConnection); ok && conn.Params != nil {
-					remote = conn.Params.Data
-				}
-			}
-		}
-		if err := Calls.Connect(chatID, remote, false); err != nil {
-			last = err
-			time.Sleep(800 * time.Millisecond)
-			continue
-		}
-		activeCalls[chatID] = inputCall
-		callIsVideo[chatID] = video
-		bumpStream(chatID)
-		return nil
-	}
-	if last == nil {
-		last = fmt.Errorf("join call failed")
-	}
-	return last
+	return joinExistingCall(chatID, media, video)
 }
