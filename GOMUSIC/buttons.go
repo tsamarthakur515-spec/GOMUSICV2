@@ -111,9 +111,12 @@ func GetNowPlayingMarkup(bar string) [][]InlineBtn {
 	}
 }
 
-func GetQueuedMarkup(index int) [][]InlineBtn {
+func GetQueuedMarkup(chatID int64, index int) [][]InlineBtn {
 	return [][]InlineBtn{
-		{styleBtn(smallcaps("play now"), fmt.Sprintf("queue_now:%d", index), ColourBlue), styleBtn(smallcaps("skip"), "skip", ColourGreen)},
+		{
+			styleBtn(smallcaps("play now"), fmt.Sprintf("queue_now:%d:%d", chatID, index), ColourBlue),
+			styleBtn(smallcaps("skip"), fmt.Sprintf("skip:%d", chatID), ColourGreen),
+		},
 		{styleBtn(smallcaps("close"), "close_panel", ColourRed)},
 	}
 }
