@@ -157,7 +157,7 @@ func pickFont(bold bool) string {
 func dt(text, font string, size, x, y int, color string) string {
 	part := "drawtext=text='" + ffText(text) + "':fontcolor=" + color +
 		":fontsize=" + itoa(size) + ":x=" + itoa(x) + ":y=" + itoa(y) +
-		":shadowcolor=black@0.45:shadowx=1:shadowy=1"
+		":shadowcolor=black@0.35:shadowx=1:shadowy=1"
 	if font != "" {
 		part += ":fontfile=" + font
 	}
@@ -186,6 +186,12 @@ func itoa(n int) string {
 	return string(b[i:])
 }
 
+func roundAlpha(radius, alpha int) string {
+	r := itoa(radius)
+	a := itoa(alpha)
+	return "if(gt(hypot(X-min(max(X," + r + "),W-1-" + r + "),Y-min(max(Y," + r + "),H-1-" + r + "))," + r + "),0," + a + ")"
+}
+
 func makeEditedThumb(cover, title, duration, requester, videoID string) string {
 	if cover == "" {
 		return ""
@@ -197,14 +203,13 @@ func makeEditedThumb(cover, title, duration, requester, videoID string) string {
 	}
 	out := filepath.Join(downloadDir, name)
 
-	title = shortTitle(safeDrawText(title), 32)
+	title = shortTitle(safeDrawText(title), 34)
 	if title == "" {
 		title = "Now Playing"
 	}
-	who := shortTitle(safeDrawText(requester), 22)
-	artist := "Requested by " + who
+	who := shortTitle(safeDrawText(requester), 28)
 	if who == "" {
-		artist = safeDrawText(BotName)
+		who = safeDrawText(BotName)
 	}
 	if duration == "" {
 		duration = "0:00"
@@ -218,68 +223,67 @@ func makeEditedThumb(cover, title, duration, requester, videoID string) string {
 	bold := pickFont(true)
 	reg := pickFont(false)
 
-	cornerR := 18
-	cx, cy, cw, ch := 210, 120, 860, 430
-	_ = cx
+	cx, cy, cw, ch := 160, 118, 960, 484
+	cardR := 48
+	art := 200
+	artR := 28
+	ax, ay := cx+40, cy+40
+	tx := ax + art + 32
+	progressY := cy + 268
+	ctrlY := cy + 318
+	volY := cy + 412
+	barX, barW := tx, 620
+
+	cardA := roundAlpha(cardR, 158)
+	artA := roundAlpha(artR, 255)
 
 	fc := "[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720," +
-		"gblur=sigma=28,eq=brightness=-0.28:saturation=0.9[bg];" +
-		"[0:v]scale=210:210:force_original_aspect_ratio=increase,crop=210:210[artraw];" +
-		"[artraw]format=yuva420p," +
-		"geq=lum='p(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':" +
-		"a='if(lte(hypot(X-105,Y-105),105),255,0)'[art];" +
-		"[bg]drawbox=" +
-		"x=" + itoa(cx) + ":y=" + itoa(cy) +
-		":w=" + itoa(cw) + ":h=" + itoa(ch) +
-		":color=black@0.62:t=fill[card];" +
-		"[card]drawbox=x=" + itoa(cx) + ":y=" + itoa(cy) +
-		":w=" + itoa(cornerR) + ":h=" + itoa(cornerR) +
-		":color=black@1.0:t=fill," +
-		"drawbox=x=" + itoa(cx+cw-cornerR) + ":y=" + itoa(cy) +
-		":w=" + itoa(cornerR) + ":h=" + itoa(cornerR) +
-		":color=black@1.0:t=fill," +
-		"drawbox=x=" + itoa(cx) + ":y=" + itoa(cy+ch-cornerR) +
-		":w=" + itoa(cornerR) + ":h=" + itoa(cornerR) +
-		":color=black@1.0:t=fill," +
-		"drawbox=x=" + itoa(cx+cw-cornerR) + ":y=" + itoa(cy+ch-cornerR) +
-		":w=" + itoa(cornerR) + ":h=" + itoa(cornerR) +
-		":color=black@1.0:t=fill[cardR];" +
-		"[cardR][art]overlay=" + itoa(cx+30) + ":" + itoa(cy+(ch/2)-105) + "[v];" +
+		"gblur=sigma=22,eq=brightness=-0.10:saturation=0.88[bg];" +
+		"color=c=black:s=" + itoa(cw) + "x" + itoa(ch) + ":d=1:r=1[cardbase];" +
+		"[cardbase]format=yuva444p,geq=lum=0:cb=128:cr=128:a='" + cardA + "'[card];" +
+		"[bg][card]overlay=" + itoa(cx) + ":" + itoa(cy) + "[withcard];" +
+		"[0:v]scale=" + itoa(art) + ":" + itoa(art) + ":force_original_aspect_ratio=increase,crop=" + itoa(art) + ":" + itoa(art) + "[artraw];" +
+		"[artraw]format=yuva444p,geq=lum='p(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':a='" + artA + "'[art];" +
+		"[withcard][art]overlay=" + itoa(ax) + ":" + itoa(ay) + "[v];" +
 		"[v]" +
-		"drawbox=x=490:y=" + itoa(cy+ch-130) + ":w=520:h=5:color=white@0.25:t=fill," +
-		"drawbox=x=490:y=" + itoa(cy+ch-130) + ":w=156:h=5:color=white@0.95:t=fill," +
-		"drawbox=x=618:y=" + itoa(cy+ch-85) + ":w=16:h=30:color=white@0.95:t=fill," +
-		"drawbox=x=642:y=" + itoa(cy+ch-85) + ":w=16:h=30:color=white@0.95:t=fill," +
-		dt(label, reg, 17, 490, cy+30, "white@0.68") + "," +
-		dt(title, bold, 32, 490, cy+65, "white") + "," +
-		dt(artist, reg, 20, 490, cy+115, "white@0.80") + "," +
-		dt("0:00", reg, 15, 490, cy+ch-155, "white@0.75") + "," +
-		dt(duration, reg, 15, 970, cy+ch-155, "white@0.75") + "," +
-		dt("<<", bold, 24, 540, cy+ch-90, "white@0.85") + "," +
-		dt(">>", bold, 24, 700, cy+ch-90, "white@0.85") + "," +
-		dt(creditAPI, reg, 18, 60, 560, "white@0.90") + "," +
-		dt(creditBot, reg, 18, 60, 592, "white@0.90") + "," +
-		dt(creditOwner, reg, 18, 60, 624, "white@0.90")
+		"drawbox=x=" + itoa(barX) + ":y=" + itoa(progressY) + ":w=" + itoa(barW) + ":h=6:color=white@0.22:t=fill," +
+		"drawbox=x=" + itoa(barX) + ":y=" + itoa(progressY) + ":w=" + itoa(barW*28/100) + ":h=6:color=white@0.95:t=fill," +
+		"drawbox=x=" + itoa(cx+cw/2-28) + ":y=" + itoa(ctrlY) + ":w=14:h=34:color=white@0.96:t=fill," +
+		"drawbox=x=" + itoa(cx+cw/2+6) + ":y=" + itoa(ctrlY) + ":w=14:h=34:color=white@0.96:t=fill," +
+		"drawbox=x=" + itoa(ax) + ":y=" + itoa(volY) + ":w=" + itoa(cw-80) + ":h=5:color=white@0.18:t=fill," +
+		"drawbox=x=" + itoa(ax) + ":y=" + itoa(volY) + ":w=" + itoa((cw-80)*42/100) + ":h=5:color=white@0.70:t=fill," +
+		dt(label, reg, 16, tx, cy+46, "white@0.62") + "," +
+		dt(title, bold, 30, tx, cy+78, "white") + "," +
+		dt(who, reg, 20, tx, cy+128, "white@0.78") + "," +
+		dt("0:00", reg, 15, barX, progressY-28, "white@0.70") + "," +
+		dt("-"+duration, reg, 15, barX+barW-70, progressY-28, "white@0.70") + "," +
+		dt("<<", bold, 26, cx+cw/2-118, ctrlY+2, "white@0.90") + "," +
+		dt(">>", bold, 26, cx+cw/2+48, ctrlY+2, "white@0.90") + "," +
+		dt(creditAPI, reg, 13, ax, cy+ch-36, "white@0.45")
 
 	cmd := exec.Command("ffmpeg", "-y", "-i", cover,
 		"-filter_complex", fc,
 		"-frames:v", "1", "-q:v", "3", out)
 	if err := cmd.Run(); err != nil {
-		simple := "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720," +
-			"gblur=sigma=18,eq=brightness=-0.18," +
-			"drawbox=x=210:y=130:w=860:h=400:color=black@0.58:t=fill," +
-			dt(title, bold, 32, 250, 200, "white") + "," +
-			dt(artist, reg, 20, 250, 252, "white@0.80") + "," +
-			dt(creditAPI, reg, 18, 60, 560, "white@0.90") + "," +
-			dt(creditBot, reg, 18, 60, 592, "white@0.90") + "," +
-			dt(creditOwner, reg, 18, 60, 624, "white@0.90")
-		cmd = exec.Command("ffmpeg", "-y", "-i", cover, "-vf", simple, "-frames:v", "1", "-q:v", "3", out)
+		fc420 := strings.ReplaceAll(fc, "yuva444p", "yuva420p")
+		cmd = exec.Command("ffmpeg", "-y", "-i", cover,
+			"-filter_complex", fc420,
+			"-frames:v", "1", "-q:v", "3", out)
 		if err2 := cmd.Run(); err2 != nil {
-			cmd = exec.Command("ffmpeg", "-y", "-i", cover,
-				"-vf", "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720",
-				"-frames:v", "1", "-q:v", "3", out)
+			simple := "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720," +
+				"gblur=sigma=20,eq=brightness=-0.12," +
+				"drawbox=x=" + itoa(cx) + ":y=" + itoa(cy) + ":w=" + itoa(cw) + ":h=" + itoa(ch) + ":color=black@0.58:t=fill," +
+				dt(label, reg, 16, tx, cy+46, "white@0.62") + "," +
+				dt(title, bold, 30, tx, cy+78, "white") + "," +
+				dt(who, reg, 20, tx, cy+128, "white@0.78")
+			cmd = exec.Command("ffmpeg", "-y", "-i", cover, "-vf", simple, "-frames:v", "1", "-q:v", "3", out)
 			if err3 := cmd.Run(); err3 != nil {
-				return cover
+				cmd = exec.Command("ffmpeg", "-y", "-i", cover,
+					"-vf", "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720",
+					"-frames:v", "1", "-q:v", "3", out)
+				if err4 := cmd.Run(); err4 != nil {
+					return cover
+				}
 			}
 		}
 	}
