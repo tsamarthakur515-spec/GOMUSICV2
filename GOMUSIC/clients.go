@@ -74,11 +74,13 @@ func initClients() error {
 	}
 
 	botClient, err := telegram.NewClient(telegram.ClientConfig{
-		AppID:         int32(APIID),
-		AppHash:       APIHash,
-		MemorySession: true,
-		ParseMode:     "HTML",
-		NoPreconnect:  true,
+		AppID:           int32(APIID),
+		AppHash:         APIHash,
+		MemorySession:   true,
+		ParseMode:       "HTML",
+		NoPreconnect:    true,
+		RawUpdates:      true,
+		DisableGapFetch: true,
 	})
 	if err != nil {
 		return err
@@ -98,12 +100,14 @@ func initClients() error {
 		return err
 	}
 	asst, err := telegram.NewClient(telegram.ClientConfig{
-		AppID:         int32(APIID),
-		AppHash:       APIHash,
-		StringSession: encoded,
-		MemorySession: true,
-		ParseMode:     "HTML",
-		NoPreconnect:  true,
+		AppID:           int32(APIID),
+		AppHash:         APIHash,
+		StringSession:   encoded,
+		MemorySession:   true,
+		ParseMode:       "HTML",
+		NoPreconnect:    true,
+		RawUpdates:      true,
+		DisableGapFetch: true,
 	})
 	if err != nil {
 		return err
