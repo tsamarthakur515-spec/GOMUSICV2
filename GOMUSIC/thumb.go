@@ -220,38 +220,92 @@ func makeEditedThumb(cover, title, duration, requester, videoID string) string {
 	bold := pickFont(true)
 	reg := pickFont(false)
 
-	// Compact centered player card (closer to the phone-player screenshot).
-	fc := "[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,gblur=sigma=32,eq=brightness=-0.22:saturation=0.85[bg];" +
-		"[0:v]scale=240:240:force_original_aspect_ratio=increase,crop=200:200[art];" +
-		"[bg]drawbox=x=210:y=145:w=860:h=370:color=black@0.58:t=fill[card];" +
-		"[card][art]overlay=250:195[v];" +
-		"[v]drawbox=x=480:y=368:w=540:h=6:color=white@0.22:t=fill," +
-		"drawbox=x=480:y=368:w=190:h=6:color=white@0.95:t=fill," +
-		"drawbox=x=718:y=418:w=18:h=28:color=white@0.95:t=fill," +
-		"drawbox=x=744:y=418:w=18:h=28:color=white@0.95:t=fill," +
-		dt(label, reg, 18, 480, 198, "white@0.72") + "," +
-		dt(title, bold, 30, 480, 232, "white") + "," +
-		dt(artist, reg, 20, 480, 278, "white@0.82") + "," +
-		dt("0:00", reg, 16, 480, 340, "white@0.8") + "," +
-		dt(duration, reg, 16, 960, 340, "white@0.8") + "," +
-		dt("<<", bold, 26, 560, 412, "white") + "," +
-		dt(">>", bold, 26, 820, 412, "white") + "," +
-		dt(creditAPI, reg, 20, 70, 555, "white@0.92") + "," +
-		dt(creditBot, reg, 20, 70, 592, "white@0.92") + "," +
-		dt(creditOwner, reg, 20, 70, 629, "white@0.92")
+	// Image 1 style: centered card, circular art, rounded-feel overlay
+	// Card: x=210 y=120 w=860 h=430
+	// Art: circular crop centered at left of card (x=250, y=145, size=210x210)
+	// Rounded corners trick: draw 4 dark boxes at card corners to fake radius
+	cornerR := 18 // fake border-radius size
+
+	cx, cy, cw, ch := 210, 120, 860, 430 // card bounds
+	_ = cx
+
+	// Circle art via geq filter — scale art to 210x210, apply circular mask
+	// Then overlay on card
+	fc := "[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720," +
+		"gblur=sigma=28,eq=brightness=-0.28:saturation=0.9[bg];" +
+
+		// Scale art to circle size + add circular alpha mask
+		"[0:v]scale=210:210:force_original_aspect_ratio=increase,crop=210:210[artraw];" +
+		"[artraw]format=yuva420p," +
+		"geq=lum='p(X,Y)':cb='cb(X,Y)':cr='cr(X,Y)':" +
+		"a='if(lte(hypot(X-105,Y-105),105),255,0)'[art];" +
+
+		// Dark card bg
+		"[bg]drawbox=" +
+		"x=" + itoa(cx) + ":y=" + itoa(cy) +
+		":w=" + itoa(cw) + ":h=" + itoa(ch) +
+		":color=black@0.62:t=fill[card];" +
+
+		// Fake rounded corners — draw dark boxes at 4 corners of card
+		// Top-left
+		"[card]drawbox=x=" + itoa(cx) + ":y=" + itoa(cy) +
+		":w=" + itoa(cornerR) + ":h=" + itoa(cornerR) +
+		":color=black@1.0:t=fill," +
+		// Top-right
+		"drawbox=x=" + itoa(cx+cw-cornerR) + ":y=" + itoa(cy) +
+		":w=" + itoa(cornerR) + ":h=" + itoa(cornerR) +
+		":color=black@1.0:t=fill," +
+		// Bottom-left
+		"drawbox=x=" + itoa(cx) + ":y=" + itoa(cy+ch-cornerR) +
+		":w=" + itoa(cornerR) + ":h=" + itoa(cornerR) +
+		":color=black@1.0:t=fill," +
+		// Bottom-right
+		"drawbox=x=" + itoa(cx+cw-cornerR) + ":y=" + itoa(cy+ch-cornerR) +
+		":w=" + itoa(cornerR) + ":h=" + itoa(cornerR) +
+		":color=black@1.0:t=fill[cardR];" +
+
+		// Overlay circular art on card
+		"[cardR][art]overlay=" + itoa(cx+30) + ":" + itoa(cy+(ch/2)-105) + "[v];" +
+
+		// Text + controls + progress bar + credits
+		"[v]" +
+		// Progress bar track
+		"drawbox=x=490:y=" + itoa(cy+ch-130) + ":w=520:h=5:color=white@0.25:t=fill," +
+		// Progress fill (~30%)
+		"drawbox=x=490:y=" + itoa(cy+ch-130) + ":w=156:h=5:color=white@0.95:t=fill," +
+		// Pause bars (center)
+		"drawbox=x=618:y=" + itoa(cy+ch-85) + ":w=16:h=30:color=white@0.95:t=fill," +
+		"drawbox=x=642:y=" + itoa(cy+ch-85) + ":w=16:h=30:color=white@0.95:t=fill," +
+		// Bot label (top of text area)
+		dt(label, reg, 17, 490, cy+30, "white@0.68") + "," +
+		// Title
+		dt(title, bold, 32, 490, cy+65, "white") + "," +
+		// Artist / requester
+		dt(artist, reg, 20, 490, cy+115, "white@0.80") + "," +
+		// Time stamps
+		dt("0:00", reg, 15, 490, cy+ch-155, "white@0.75") + "," +
+		dt(duration, reg, 15, 970, cy+ch-155, "white@0.75") + "," +
+		// Prev / Next arrows
+		dt("<<", bold, 24, 540, cy+ch-90, "white@0.85") + "," +
+		dt(">>", bold, 24, 700, cy+ch-90, "white@0.85") + "," +
+		// Credits bottom-left
+		dt(creditAPI, reg, 18, 60, 560, "white@0.90") + "," +
+		dt(creditBot, reg, 18, 60, 592, "white@0.90") + "," +
+		dt(creditOwner, reg, 18, 60, 624, "white@0.90")
 
 	cmd := exec.Command("ffmpeg", "-y", "-i", cover,
 		"-filter_complex", fc,
 		"-frames:v", "1", "-q:v", "3", out)
 	if err := cmd.Run(); err != nil {
+		// Fallback: simple blur + text, no circle art
 		simple := "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720," +
-			"gblur=sigma=18,eq=brightness=-0.16," +
-			"drawbox=x=200:y=160:w=880:h=320:color=black@0.55:t=fill," +
-			dt(title, bold, 34, 240, 220, "white") + "," +
-			dt(artist, reg, 22, 240, 280, "white@0.85") + "," +
-			dt(creditAPI, reg, 20, 70, 555, "white@0.92") + "," +
-			dt(creditBot, reg, 20, 70, 592, "white@0.92") + "," +
-			dt(creditOwner, reg, 20, 70, 629, "white@0.92")
+			"gblur=sigma=18,eq=brightness=-0.18," +
+			"drawbox=x=210:y=130:w=860:h=400:color=black@0.58:t=fill," +
+			dt(title, bold, 32, 250, 200, "white") + "," +
+			dt(artist, reg, 20, 250, 252, "white@0.80") + "," +
+			dt(creditAPI, reg, 18, 60, 560, "white@0.90") + "," +
+			dt(creditBot, reg, 18, 60, 592, "white@0.90") + "," +
+			dt(creditOwner, reg, 18, 60, 624, "white@0.90")
 		cmd = exec.Command("ffmpeg", "-y", "-i", cover, "-vf", simple, "-frames:v", "1", "-q:v", "3", out)
 		if err2 := cmd.Run(); err2 != nil {
 			cmd = exec.Command("ffmpeg", "-y", "-i", cover,
