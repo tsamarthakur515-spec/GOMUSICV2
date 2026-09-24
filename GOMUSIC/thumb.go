@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"unicode"
 
 	"github.com/amarnathcjd/gogram/telegram"
 )
@@ -42,6 +43,94 @@ func ffText(s string) string {
 	return s
 }
 
+func unfoldSmallcaps(s string) string {
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		switch r {
+		case 'ᴀ':
+			b.WriteByte('A')
+		case 'ʙ':
+			b.WriteByte('B')
+		case 'ᴄ':
+			b.WriteByte('C')
+		case 'ᴅ':
+			b.WriteByte('D')
+		case 'ᴇ':
+			b.WriteByte('E')
+		case 'ꜰ', 'ғ':
+			b.WriteByte('F')
+		case 'ɢ':
+			b.WriteByte('G')
+		case 'ʜ':
+			b.WriteByte('H')
+		case 'ɪ':
+			b.WriteByte('I')
+		case 'ᴊ':
+			b.WriteByte('J')
+		case 'ᴋ':
+			b.WriteByte('K')
+		case 'ʟ':
+			b.WriteByte('L')
+		case 'ᴍ':
+			b.WriteByte('M')
+		case 'ɴ':
+			b.WriteByte('N')
+		case 'ᴏ':
+			b.WriteByte('O')
+		case 'ᴘ':
+			b.WriteByte('P')
+		case 'ǫ', 'ϙ':
+			b.WriteByte('Q')
+		case 'ʀ':
+			b.WriteByte('R')
+		case 'ꜱ', '𝓼', '𝗌':
+			b.WriteByte('S')
+		case 'ᴛ':
+			b.WriteByte('T')
+		case 'ᴜ':
+			b.WriteByte('U')
+		case 'ᴠ':
+			b.WriteByte('V')
+		case 'ᴡ':
+			b.WriteByte('W')
+		case 'x', 'ᴇx':
+			b.WriteRune(r)
+		case 'ʏ':
+			b.WriteByte('Y')
+		case 'ᴢ':
+			b.WriteByte('Z')
+		default:
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+func safeDrawText(s string) string {
+	s = unfoldSmallcaps(s)
+	s = strings.ReplaceAll(s, "×", "x")
+	s = strings.ReplaceAll(s, "•", "-")
+	s = strings.ReplaceAll(s, "—", "-")
+	s = strings.ReplaceAll(s, "|", "-")
+	var b strings.Builder
+	b.Grow(len(s))
+	for _, r := range s {
+		if r == '\n' || r == '\r' || r == '\t' {
+			b.WriteByte(' ')
+			continue
+		}
+		if r < 32 {
+			continue
+		}
+		if r < 127 || unicode.Is(unicode.Latin, r) || unicode.IsNumber(r) || unicode.IsSpace(r) || strings.ContainsRune(".,!?'-_+()/&", r) {
+			b.WriteRune(r)
+			continue
+		}
+	}
+	return strings.Join(strings.Fields(strings.TrimSpace(b.String())), " ")
+}
+
 func pickFont(bold bool) string {
 	cands := []string{
 		"/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
@@ -70,7 +159,7 @@ func pickFont(bold bool) string {
 func dt(text, font string, size, x, y int, color string) string {
 	part := "drawtext=text='" + ffText(text) + "':fontcolor=" + color +
 		":fontsize=" + itoa(size) + ":x=" + itoa(x) + ":y=" + itoa(y) +
-		":shadowcolor=black@0.55:shadowx=2:shadowy=2"
+		":shadowcolor=black@0.45:shadowx=1:shadowy=1"
 	if font != "" {
 		part += ":fontfile=" + font
 	}
@@ -110,50 +199,59 @@ func makeEditedThumb(cover, title, duration, requester, videoID string) string {
 	}
 	out := filepath.Join(downloadDir, name)
 
-	title = shortTitle(strings.TrimSpace(title), 36)
+	title = shortTitle(safeDrawText(title), 32)
 	if title == "" {
 		title = "Now Playing"
 	}
-	artist := shortTitle(strings.TrimSpace(requester), 28)
-	if artist == "" {
-		artist = BotName
+	who := shortTitle(safeDrawText(requester), 22)
+	artist := "Requested by " + who
+	if who == "" {
+		artist = safeDrawText(BotName)
 	}
 	if duration == "" {
 		duration = "0:00"
+	} else {
+		duration = safeDrawText(duration)
 	}
-	label := strings.TrimSpace(BotName)
+	label := safeDrawText(BotName)
 	if label == "" {
 		label = "Music Bot"
 	}
 	bold := pickFont(true)
 	reg := pickFont(false)
 
-	fc := "[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,gblur=sigma=26,eq=brightness=-0.18:saturation=0.9[bg];" +
-		"[0:v]scale=288:288:force_original_aspect_ratio=increase,crop=288:288[art];" +
-		"[bg]drawbox=x=80:y=100:w=1120:h=430:color=black@0.55:t=fill[card];" +
-		"[card][art]overlay=120:160[v];" +
-		"[v]drawbox=x=440:y=392:w=700:h=8:color=white@0.22:t=fill," +
-		"drawbox=x=440:y=392:w=250:h=8:color=white@0.95:t=fill," +
-		dt(label, reg, 22, 440, 175, "white@0.75") + "," +
-		dt(title, bold, 38, 440, 215, "white") + "," +
-		dt(artist, reg, 26, 440, 270, "white@0.85") + "," +
-		dt("0:00", reg, 20, 440, 360, "white@0.8") + "," +
-		dt(duration, reg, 20, 1040, 360, "white@0.8") + "," +
-		dt(creditAPI, reg, 22, 80, 560, "white@0.92") + "," +
-		dt(creditBot, reg, 22, 80, 598, "white@0.92") + "," +
-		dt(creditOwner, reg, 22, 80, 636, "white@0.92")
+	// Compact centered player card (closer to the phone-player screenshot).
+	fc := "[0:v]scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720,gblur=sigma=32,eq=brightness=-0.22:saturation=0.85[bg];" +
+		"[0:v]scale=240:240:force_original_aspect_ratio=increase,crop=200:200[art];" +
+		"[bg]drawbox=x=210:y=145:w=860:h=370:color=black@0.58:t=fill[card];" +
+		"[card][art]overlay=250:195[v];" +
+		"[v]drawbox=x=480:y=368:w=540:h=6:color=white@0.22:t=fill," +
+		"drawbox=x=480:y=368:w=190:h=6:color=white@0.95:t=fill," +
+		"drawbox=x=718:y=418:w=18:h=28:color=white@0.95:t=fill," +
+		"drawbox=x=744:y=418:w=18:h=28:color=white@0.95:t=fill," +
+		dt(label, reg, 18, 480, 198, "white@0.72") + "," +
+		dt(title, bold, 30, 480, 232, "white") + "," +
+		dt(artist, reg, 20, 480, 278, "white@0.82") + "," +
+		dt("0:00", reg, 16, 480, 340, "white@0.8") + "," +
+		dt(duration, reg, 16, 960, 340, "white@0.8") + "," +
+		dt("<<", bold, 26, 560, 412, "white") + "," +
+		dt(">>", bold, 26, 820, 412, "white") + "," +
+		dt(creditAPI, reg, 20, 70, 555, "white@0.92") + "," +
+		dt(creditBot, reg, 20, 70, 592, "white@0.92") + "," +
+		dt(creditOwner, reg, 20, 70, 629, "white@0.92")
 
 	cmd := exec.Command("ffmpeg", "-y", "-i", cover,
 		"-filter_complex", fc,
 		"-frames:v", "1", "-q:v", "3", out)
 	if err := cmd.Run(); err != nil {
 		simple := "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720," +
-			"eq=brightness=-0.12," +
-			"drawbox=x=0:y=500:w=1280:h=220:color=black@0.6:t=fill," +
-			dt(title, bold, 40, 48, 520, "white") + "," +
-			dt(creditAPI, reg, 22, 48, 575, "white@0.92") + "," +
-			dt(creditBot, reg, 22, 48, 610, "white@0.92") + "," +
-			dt(creditOwner, reg, 22, 48, 645, "white@0.92")
+			"gblur=sigma=18,eq=brightness=-0.16," +
+			"drawbox=x=200:y=160:w=880:h=320:color=black@0.55:t=fill," +
+			dt(title, bold, 34, 240, 220, "white") + "," +
+			dt(artist, reg, 22, 240, 280, "white@0.85") + "," +
+			dt(creditAPI, reg, 20, 70, 555, "white@0.92") + "," +
+			dt(creditBot, reg, 20, 70, 592, "white@0.92") + "," +
+			dt(creditOwner, reg, 20, 70, 629, "white@0.92")
 		cmd = exec.Command("ffmpeg", "-y", "-i", cover, "-vf", simple, "-frames:v", "1", "-q:v", "3", out)
 		if err2 := cmd.Run(); err2 != nil {
 			cmd = exec.Command("ffmpeg", "-y", "-i", cover,
