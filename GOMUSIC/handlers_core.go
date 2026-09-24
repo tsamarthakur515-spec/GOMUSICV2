@@ -111,6 +111,21 @@ func userNameOf(m *telegram.NewMessage) string {
 	return sanitizeDisplayName(m.Sender.FirstName)
 }
 
+func senderFullName(m *telegram.NewMessage) string {
+	if m == nil || m.Sender == nil {
+		return "User"
+	}
+	name := strings.TrimSpace(strings.TrimSpace(m.Sender.FirstName) + " " + strings.TrimSpace(m.Sender.LastName))
+	return sanitizeDisplayName(name)
+}
+
+func senderUsername(m *telegram.NewMessage) string {
+	if m == nil || m.Sender == nil || strings.TrimSpace(m.Sender.Username) == "" {
+		return "-"
+	}
+	return "@" + strings.TrimSpace(m.Sender.Username)
+}
+
 func mentionOf(m *telegram.NewMessage) string {
 	if m.Sender == nil {
 		return "Unknown"
@@ -164,6 +179,28 @@ func helpListCaption(uid int64, name string) string {
 	return helpInner(uid, name)
 }
 
+func logNewUserStart(m *telegram.NewMessage) {
+	if LoggerID == 0 || Bot == nil || m == nil || !m.IsPrivate() {
+		return
+	}
+	uid := userIDOf(m)
+	if uid == 0 {
+		return
+	}
+	name := senderFullName(m)
+	uname := senderUsername(m)
+	total := getServedUsersCount()
+	body := "<blockquote expandable><b>NEW USER STARTED BOT</b>\n\n" +
+		"<b>NAME</b> — <code>" + richEsc(name) + "</code>\n" +
+		"<b>U NAME</b> — <code>" + richEsc(uname) + "</code>\n" +
+		"<b>U ID</b> — <code>" + fmt.Sprintf("%d", uid) + "</code>\n" +
+		"<b>TOTAL USER</b> — <code>" + fmt.Sprintf("%d", total) + "</code></blockquote>"
+	kb := mixedKeyboard([][][2]string{{
+		{"OPEN PROFILE", fmt.Sprintf("tg://user?id=%d", uid)},
+	}})
+	_, _ = sendHTML(Bot, LoggerID, body, kb)
+}
+
 func handleStart(m *telegram.NewMessage) error {
 	if blocked(m) {
 		return nil
@@ -172,10 +209,13 @@ func handleStart(m *telegram.NewMessage) error {
 	uid := userIDOf(m)
 	name := userNameOf(m)
 	chatID := m.ChatID()
-	addServedUser(uid)
+	isNew := addServedUser(uid)
 	addServedChat(chatID)
 	arg := strings.ToLower(cmdArgs(m))
 	if m.IsPrivate() {
+		if isNew {
+			go logNewUserStart(m)
+		}
 		if arg == "pm_help" {
 			_, _ = sendQuotedPhoto(chatID, helpInner(uid, name), GetHelpMarkup())
 		} else {

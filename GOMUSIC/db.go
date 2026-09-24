@@ -1,6 +1,11 @@
 package main
 
-import "sync"
+import (
+	"encoding/json"
+	"os"
+	"path/filepath"
+	"sync"
+)
 
 var (
 	memMu          sync.Mutex
@@ -13,7 +18,44 @@ var (
 	chatEffects    = map[int64]effectState{}
 )
 
-func startStore() {}
+const usersStoreFile = "data/users.json"
+
+func startStore() {
+	loadServedUsers()
+}
+
+func loadServedUsers() {
+	b, err := os.ReadFile(usersStoreFile)
+	if err != nil || len(b) == 0 {
+		return
+	}
+	var ids []int64
+	if json.Unmarshal(b, &ids) != nil {
+		return
+	}
+	memMu.Lock()
+	for _, id := range ids {
+		if id != 0 {
+			servedUsers[id] = struct{}{}
+		}
+	}
+	memMu.Unlock()
+}
+
+func persistUsers() {
+	memMu.Lock()
+	ids := make([]int64, 0, len(servedUsers))
+	for id := range servedUsers {
+		ids = append(ids, id)
+	}
+	memMu.Unlock()
+	_ = os.MkdirAll(filepath.Dir(usersStoreFile), 0o755)
+	b, err := json.Marshal(ids)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(usersStoreFile, b, 0o644)
+}
 
 func addServedChat(chatID int64) {
 	memMu.Lock()
@@ -21,10 +63,18 @@ func addServedChat(chatID int64) {
 	memMu.Unlock()
 }
 
-func addServedUser(userID int64) {
+func addServedUser(userID int64) bool {
+	if userID == 0 {
+		return false
+	}
 	memMu.Lock()
+	_, exists := servedUsers[userID]
 	servedUsers[userID] = struct{}{}
 	memMu.Unlock()
+	if !exists {
+		persistUsers()
+	}
+	return !exists
 }
 
 func incrementPlayCount(chatID int64) {
