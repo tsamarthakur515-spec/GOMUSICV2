@@ -16,8 +16,8 @@ else
 fi
 
 echo "==> packages"
-$SUDO apt-get update -y
-$SUDO apt-get install -y build-essential gcc g++ make ffmpeg fonts-dejavu-core fonts-dejavu curl git python3 wget unzip ca-certificates
+$SUDO apt update -y
+$SUDO apt install -y build-essential gcc g++ make ffmpeg fonts-dejavu-core fonts-dejavu curl git python3 wget unzip ca-certificates
 
 if ! command -v go >/dev/null 2>&1; then
   echo "==> installing Go 1.26.0"
