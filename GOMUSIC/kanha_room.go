@@ -19,6 +19,7 @@ func RoomPlay(chatID int64, song Song, force bool, msg *telegram.NewMessage) err
 		} else {
 			_, _ = sendHTML(Bot, chatID, body, gogramMarkup(GetQueuedMarkup(chatID, pos-1)))
 		}
+		go logPlayAction(chatID, song, true)
 		return nil
 	}
 

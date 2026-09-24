@@ -179,6 +179,75 @@ func helpListCaption(uid int64, name string) string {
 	return helpInner(uid, name)
 }
 
+func chatTitleOf(chatID int64) string {
+	if Bot == nil {
+		return "Group"
+	}
+	raw, err := Bot.GetChat(chatID)
+	if err != nil || raw == nil {
+		return "Group"
+	}
+	switch c := raw.(type) {
+	case *telegram.Channel:
+		if strings.TrimSpace(c.Title) != "" {
+			return c.Title
+		}
+	case *telegram.ChatObj:
+		if strings.TrimSpace(c.Title) != "" {
+			return c.Title
+		}
+	}
+	return "Group"
+}
+
+func playSourceOf(song Song) string {
+	u := strings.ToLower(song.URL)
+	switch {
+	case strings.Contains(u, "youtu"):
+		return "Searched on Youtube"
+	default:
+		return "Searched on Youtube"
+	}
+}
+
+func playModeOf(song Song, queued bool) string {
+	if queued {
+		return smallcaps("queue")
+	}
+	if song.Video {
+		return smallcaps("vplay")
+	}
+	return smallcaps("play")
+}
+
+func logPlayAction(chatID int64, song Song, queued bool) {
+	if LoggerID == 0 || Bot == nil || chatID == 0 {
+		return
+	}
+	name := song.Requester
+	if name == "" {
+		name = "User"
+	}
+	title := song.Title
+	if title == "" {
+		title = "Unknown"
+	}
+	body := "<blockquote expandable><b>" + smallcaps("new play log") + "</b>\n\n" +
+		smallcaps("user") + " : " + richEsc(name) + " [<code>" + fmt.Sprintf("%d", song.RequesterID) + "</code>]\n" +
+		smallcaps("group") + " : " + richEsc(chatTitleOf(chatID)) + "\n" +
+		smallcaps("group id") + " : <code>" + fmt.Sprintf("%d", chatID) + "</code>\n" +
+		smallcaps("query/song") + " : " + richEsc(title) + "\n" +
+		smallcaps("source") + " : " + richEsc(playSourceOf(song)) + "\n" +
+		smallcaps("mode") + " : " + playModeOf(song, queued) + "</blockquote>"
+	kb := telegram.ReplyMarkup(nil)
+	if song.RequesterID != 0 {
+		kb = mixedKeyboard([][][2]string{{
+			{"OPEN PROFILE", fmt.Sprintf("tg://user?id=%d", song.RequesterID)},
+		}})
+	}
+	_, _ = sendHTML(Bot, LoggerID, body, kb)
+}
+
 func logNewUserStart(m *telegram.NewMessage) {
 	if LoggerID == 0 || Bot == nil || m == nil || !m.IsPrivate() {
 		return
