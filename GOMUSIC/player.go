@@ -3,8 +3,6 @@ package main
 import (
 	"fmt"
 	"log"
-	"os"
-	"os/exec"
 	"path/filepath"
 	"time"
 
@@ -19,31 +17,16 @@ func nowPlayingKB(chatID int64, elapsed, total float64) telegram.ReplyMarkup {
 	return gogramMarkup(GetNowPlayingMarkup(progressBar(elapsed, total), isAutoplay(chatID)))
 }
 
-func makePanelImage(cover, videoID string) string {
-	if cover == "" {
-		return ""
-	}
-	_ = os.MkdirAll(downloadDir, 0o755)
-	name := "panel.jpg"
-	if len(videoID) >= 6 {
-		name = "panel_" + videoID + ".jpg"
-	}
-	out := filepath.Join(downloadDir, name)
-	cmd := exec.Command("ffmpeg", "-y", "-i", cover,
-		"-vf", "scale=1280:720:force_original_aspect_ratio=increase,crop=1280:720",
-		"-frames:v", "1", "-q:v", "2", out)
-	if err := cmd.Run(); err != nil {
-		return cover
-	}
-	return out
-}
-
 func sendNowPlaying(chatID int64, song Song) *telegram.NewMessage {
 	caption := nowPlayingCaption(song)
 	kb := nowPlayingKB(chatID, 0, float64(parseDur(song.Duration)))
+	if thumbsOff(chatID) {
+		msg, _ := Bot.SendMessage(chatID, caption, &telegram.SendOptions{ParseMode: "HTML", ReplyMarkup: kb})
+		return msg
+	}
 	vid := extractVideoID(song.URL)
 	cover := cacheThumb(thumbFor(song.URL, song.Thumbnail))
-	thumb := makePanelImage(cover, vid)
+	thumb := makeEditedThumb(cover, song.Title, song.Duration, song.Requester, vid)
 	if thumb != "" {
 		if abs, err := filepath.Abs(thumb); err == nil {
 			thumb = abs
@@ -85,8 +68,9 @@ func playSongOpt(chatID int64, message *telegram.NewMessage, song Song, stayInCa
 		song.Title = t
 	}
 	setSeekState(chatID, 0)
+	apMarkPlayed(chatID, extractVideoID(song.URL))
 
-	src, err := resolveDirectURL(song.URL, song.Video)
+	src, err := downloadWithRetry(song.URL, song.Video)
 	if err != nil {
 		removeFromQueue(chatID, 0)
 		_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("download failed")+"\n<code>"+richEsc(err.Error())+"</code>"), nil)

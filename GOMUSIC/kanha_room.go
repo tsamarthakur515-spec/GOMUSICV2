@@ -40,15 +40,30 @@ func RoomChangeStream(chatID int64) error {
 	holdSwitch(chatID)
 	nxt := RoomNextTrack(chatID)
 	if nxt == nil {
+		nxt = takeAutoplayNext(chatID)
+	}
+	if nxt == nil {
 		releaseSwitch(chatID)
 		leaveVCNow(chatID)
 		_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("the queue has finished")+"\n\n"+smallcaps("use /play to add more songs")), nil)
 		return fmt.Errorf("queue empty")
 	}
-	msg, _ := sendHTML(Bot, chatID, wrapBQ(smallcaps("processing...")), nil)
-	err := playSongOpt(chatID, msg, *nxt, true)
+	var last error
+	for attempt := 0; attempt < 5; attempt++ {
+		msg, _ := sendHTML(Bot, chatID, wrapBQ(smallcaps("processing...")), nil)
+		last = playSongOpt(chatID, msg, *nxt, true)
+		if last == nil {
+			releaseSwitch(chatID)
+			return nil
+		}
+		if next := takeAutoplayNext(chatID); next != nil {
+			nxt = next
+			continue
+		}
+		break
+	}
 	releaseSwitch(chatID)
-	return err
+	return last
 }
 
 func RoomPlayNow(chatID int64, index int) error {
