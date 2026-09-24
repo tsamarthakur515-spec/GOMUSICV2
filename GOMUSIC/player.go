@@ -115,6 +115,7 @@ func playSongOpt(chatID int64, message *telegram.NewMessage, song Song, stayInCa
 	callIsVideo[chatID] = song.Video
 	addServedChat(chatID)
 	incrementPlayCount(chatID)
+	go logPlayAction(chatID, song, false)
 	total := float64(parseDur(song.Duration))
 	if total <= 0 && song.DurationSeconds > 0 {
 		total = float64(song.DurationSeconds)
