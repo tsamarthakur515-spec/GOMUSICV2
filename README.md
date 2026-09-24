@@ -11,45 +11,20 @@ Voice chats use **gogram + ntgcalls**. Start / help / player / queue panels use 
 | voice calls | ntgcalls |
 | player | ffmpeg + yt-dlp |
 
-## 1. Server packages
+## One command setup
 
-Run as root (no `sudo` needed if you already are root):
-
-```bash
-apt-get update
-apt-get install -y build-essential ffmpeg fonts-dejavu curl git python3
-```
-
-`yt-dlp` (latest):
+On a fresh Ubuntu/Debian VPS as root:
 
 ```bash
-curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
-chmod +x /usr/local/bin/yt-dlp
-yt-dlp --version
-```
-
-## 2. Install Go
-
-```bash
-cd /tmp
-curl -fsSLO https://go.dev/dl/go1.26.0.linux-amd64.tar.gz
-rm -rf /usr/local/go
-tar -C /usr/local -xzf go1.26.0.linux-amd64.tar.gz
-export PATH=/usr/local/go/bin:$PATH
-echo 'export PATH=/usr/local/go/bin:$PATH' >> ~/.bashrc
-go version
-```
-
-## 3. Clone and configure
-
-```bash
-cd /root
-git clone https://github.com/nikhil390u8o/GOMUSICV2.git
 cd /root/GOMUSICV2
 cp sample.env .env
+nano .env
+bash setup.sh
 ```
 
-Edit `.env` and fill:
+`setup.sh` installs packages, Go, yt-dlp, ntgcalls, builds `gomusic`, stops any old process, and starts the bot.
+
+Fill `.env` first:
 
 - `API_ID`
 - `API_HASH`
@@ -57,42 +32,89 @@ Edit `.env` and fill:
 - `STRING_SESSION`
 - `OWNER_ID`
 
-## 4. Build and run
+Logs:
 
 ```bash
-cd /root/GOMUSICV2
-export PATH=/usr/local/go/bin:$PATH
-export CGO_ENABLED=1
+tail -f /root/gomusic.log
+```
 
+## Manual commands (if you do not use setup.sh)
+
+```bash
+apt-get update
+apt-get install -y build-essential ffmpeg fonts-dejavu curl git python3
+
+curl -L https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp -o /usr/local/bin/yt-dlp
+chmod +x /usr/local/bin/yt-dlp
+
+cd /tmp
+curl -fsSLO https://go.dev/dl/go1.26.0.linux-amd64.tar.gz
+rm -rf /usr/local/go
+tar -C /usr/local -xzf go1.26.0.linux-amd64.tar.gz
+export PATH=/usr/local/go/bin:$PATH
+
+cd /root/GOMUSICV2
+cp -n sample.env .env
+export CGO_ENABLED=1
 go run setup_ntgcalls.go
 go build -o gomusic ./GOMUSIC
 pkill -f './gomusic' || true
-./gomusic
-```
-
-Keep it running after SSH disconnect:
-
-```bash
-cd /root/GOMUSICV2
-export PATH=/usr/local/go/bin:$PATH
-export CGO_ENABLED=1
 nohup ./gomusic > /root/gomusic.log 2>&1 &
 ```
 
-## 5. Update later
+## Update later
 
 ```bash
 cd /root/GOMUSICV2
 git pull
-export PATH=/usr/local/go/bin:$PATH
-export CGO_ENABLED=1
-pkill -f gomusic || true
-go build -o gomusic ./GOMUSIC
-./gomusic
+bash setup.sh
 ```
+
+Private repo pull needs a GitHub token, not a password:
+
+```bash
+git pull https://USERNAME:TOKEN@github.com/nikhil390u8o/GOMUSICV2.git
+```
+
+## AUTH_KEY_DUPLICATED (code 406)
+
+```
+assistant connect: AUTH_KEY_DUPLICATED
+The authorization key was used under two different IP addresses simultaneously
+```
+
+`STRING_SESSION` is the assistant user account. Telegram allows that key from **one IP at a time**.
+
+It happens when the same session is running in two places:
+
+- old Railway / old VPS still online
+- two `./gomusic` processes
+- phone + VPS both using the same userbot session from different networks at once
+
+Fix:
+
+1. Stop every old copy.
+
+```bash
+pkill -f gomusic || true
+```
+
+Also stop / delete the old Railway service if it is still deployed.
+
+2. Make a **new** Pyrogram string session for the assistant account.
+3. Put only that new value in `.env` as `STRING_SESSION`.
+4. Run the bot on **one** server only.
+
+```bash
+cd /root/GOMUSICV2
+bash setup.sh
+```
+
+Do not start the bot on Railway and this VPS together with the same session.
 
 ## Notes
 
-- Thumbnails are drawn by ffmpeg (`GOMUSIC/thumb.go`). Need `ffmpeg` + `fonts-dejavu`.
+- Thumbnails are drawn by ffmpeg (`GOMUSIC/thumb.go`). Need `ffmpeg` + DejaVu fonts.
 - Hide thumbs in a chat with `/nothumb`.
 - First build can take a few minutes while Go downloads modules.
+- `cd \~/GOMUSICV2` is wrong. Use `cd ~/GOMUSICV2` or `cd /root/GOMUSICV2`.
