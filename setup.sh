@@ -95,3 +95,5 @@ echo "log: /root/gomusic.log"
 tail -n 30 /root/gomusic.log || true
 echo
 echo "Done. Follow logs: tail -f /root/gomusic.log"
+echo "sᴛᴀʀᴛɪɴɢ ᴍᴜsɪᴄ ʙᴏᴛ"
+./gomusic
