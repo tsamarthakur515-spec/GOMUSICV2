@@ -112,6 +112,9 @@ func quotedCaption(inner string) string {
 }
 
 func sendQuotedPhoto(chatID int64, inner string, rows [][]InlineBtn) (*telegram.NewMessage, error) {
+	if chatID == 0 {
+		return nil, fmt.Errorf("chat id missing")
+	}
 	caption := quotedCaption(inner)
 	photo := pickStartPhoto()
 	tryAPI := func(withStyle bool) error {
@@ -134,6 +137,10 @@ func sendQuotedPhoto(chatID int64, inner string, rows [][]InlineBtn) (*telegram.
 	if err := tryAPI(false); err == nil {
 		return nil, nil
 	} else {
+		if strings.Contains(strings.ToLower(err.Error()), "chat not found") {
+			log.Println("sendPhoto skipped, chat not found:", chatID)
+			return nil, err
+		}
 		log.Println("sendPhoto plain:", err)
 	}
 	return Bot.SendMedia(chatID, photo, &telegram.MediaOptions{

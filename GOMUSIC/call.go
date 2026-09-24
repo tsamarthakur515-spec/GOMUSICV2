@@ -290,9 +290,24 @@ func ntgPlay(chatID int64, media ntgcalls.MediaDescription, video bool) error {
 		return errors.New("ntgcalls not ready")
 	}
 	if hasLocalCall(chatID) && isLiveSession(chatID) {
-		return Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
+		err := Calls.SetStreamSources(chatID, ntgcalls.CaptureStream, media)
+		if err == nil {
+			callIsVideo[chatID] = video || media.Camera != nil
+			return nil
+		}
+		low := strings.ToLower(err.Error())
+		if strings.Contains(low, "not found") || strings.Contains(low, "already") || strings.Contains(low, "remove") {
+			log.Println("setstream missing call, rejoining", chatID, err)
+			_ = Calls.Stop(chatID)
+			connectMu.Lock()
+			delete(joinParams, chatID)
+			connectMu.Unlock()
+			clearLiveSession(chatID)
+			return joinExistingCall(chatID, media, video || media.Camera != nil)
+		}
+		return err
 	}
-	return joinExistingCall(chatID, media, video)
+	return joinExistingCall(chatID, media, video || media.Camera != nil)
 }
 
 func joinExistingCall(chatID int64, media ntgcalls.MediaDescription, video bool) error {

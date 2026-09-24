@@ -117,6 +117,10 @@ func initClients() error {
 
 	Calls = &callAPI{Client: ntgcalls.NTgCalls()}
 	Calls.OnStreamEnd(func(chat int64, t ntgcalls.StreamType, d ntgcalls.StreamDevice) {
+		if t == ntgcalls.VideoStream || d == ntgcalls.CameraStream || d == ntgcalls.ScreenStream {
+			log.Println("ignore video/camera stream-end", chat)
+			return
+		}
 		if isSwitching(chat) {
 			return
 		}

@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -107,6 +108,34 @@ func buildMediaAV(audioSrc, videoSrc string, video bool, seekSec int) ntgcalls.M
 		),
 	}
 	return ntgcalls.MediaDescription{Microphone: audio, Camera: cam}
+}
+
+func stillCoverCamera(cover string) *ntgcalls.VideoDescription {
+	w, h := 640, 360
+	var input string
+	if cover != "" {
+		if st, err := os.Stat(cover); err == nil && st.Size() > 0 {
+			input = fmt.Sprintf("-loop 1 -r 8 -i %s", fmt.Sprintf("%q", cover))
+		}
+	}
+	if input == "" {
+		input = "-f lavfi -i color=c=black:s=640x360:r=8"
+	}
+	return &ntgcalls.VideoDescription{
+		MediaSource: ntgcalls.MediaSourceShell,
+		Width:       int16(w),
+		Height:      int16(h),
+		Fps:         8,
+		Input: fmt.Sprintf(
+			"ffmpeg %s -an -f rawvideo -r 8 -pix_fmt yuv420p -vf scale=%d:%d -v quiet pipe:1",
+			input, w, h,
+		),
+	}
+}
+
+func withStillCover(media ntgcalls.MediaDescription, cover string) ntgcalls.MediaDescription {
+	media.Camera = stillCoverCamera(cover)
+	return media
 }
 
 func startNTGStreamWithMedia(chatID int64, media ntgcalls.MediaDescription, video bool) error {

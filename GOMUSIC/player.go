@@ -96,7 +96,15 @@ func playSongOpt(chatID int64, message *telegram.NewMessage, song Song, stayInCa
 	}
 	setCurrentPath(chatID, playPath)
 
+	wasVideo := callIsVideo[chatID]
 	media := buildMediaAV(src.Audio, src.Video, song.Video, 0)
+	if !song.Video && (wasVideo || hasLocalCall(chatID)) {
+		cover := cacheThumb(thumbFor(song.URL, song.Thumbnail))
+		if cover == "" {
+			cover = playPath
+		}
+		media = withStillCover(media, cover)
+	}
 	startErr := ntgPlay(chatID, media, song.Video)
 	if startErr != nil {
 		_, _ = sendHTML(Bot, chatID, wrapBQ(smallcaps("playback failed")+"\n<code>"+richEsc(startErr.Error())+"</code>"), nil)
