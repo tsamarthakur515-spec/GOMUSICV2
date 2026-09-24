@@ -84,7 +84,7 @@ func unfoldSmallcaps(s string) string {
 			b.WriteByte('Q')
 		case 'ʀ':
 			b.WriteByte('R')
-		case 'ꜱ', 'ᵌ8', 'ᵣ2':
+		case 'ꜱ':
 			b.WriteByte('S')
 		case 'ᴛ':
 			b.WriteByte('T')
