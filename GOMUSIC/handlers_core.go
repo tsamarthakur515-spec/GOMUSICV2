@@ -201,13 +201,7 @@ func chatTitleOf(chatID int64) string {
 }
 
 func playSourceOf(song Song) string {
-	u := strings.ToLower(song.URL)
-	switch {
-	case strings.Contains(u, "youtu"):
-		return "Searched on Youtube"
-	default:
-		return "Searched on Youtube"
-	}
+	return "Searched on Youtube"
 }
 
 func playModeOf(song Song, queued bool) string {
@@ -239,7 +233,7 @@ func logPlayAction(chatID int64, song Song, queued bool) {
 		smallcaps("query/song") + " : " + richEsc(title) + "\n" +
 		smallcaps("source") + " : " + richEsc(playSourceOf(song)) + "\n" +
 		smallcaps("mode") + " : " + playModeOf(song, queued) + "</blockquote>"
-	kb := telegram.ReplyMarkup(nil)
+	var kb telegram.ReplyMarkup
 	if song.RequesterID != 0 {
 		kb = mixedKeyboard([][][2]string{{
 			{"OPEN PROFILE", fmt.Sprintf("tg://user?id=%d", song.RequesterID)},
