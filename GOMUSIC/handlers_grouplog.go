@@ -11,7 +11,22 @@ import (
 	"github.com/amarnathcjd/gogram/telegram"
 )
 
-var memLogOnce sync.Map
+type cachedGroup struct {
+	Title  string
+	Uname  string
+	Invite string
+}
+
+type cachedUser struct {
+	Name string
+	User string
+}
+
+var (
+	memLogOnce  sync.Map
+	groupCache  sync.Map
+	userCache   sync.Map
+)
 
 func canonChatID(id int64) int64 {
 	if id == 0 {
@@ -29,6 +44,122 @@ func canonChatID(id int64) int64 {
 		return -1000000000000 - raw
 	}
 	return id
+}
+
+func rememberUser(id int64, name, uname string) {
+	if id == 0 {
+		return
+	}
+	if name == "" || name == "User" {
+		return
+	}
+	userCache.Store(id, cachedUser{Name: name, User: uname})
+}
+
+func userFromCache(id int64, name, uname string) (string, string) {
+	if name != "" && name != "User" && uname != "" && uname != "-" {
+		return name, uname
+	}
+	if v, ok := userCache.Load(id); ok {
+		if u, ok := v.(cachedUser); ok {
+			if name == "" || name == "User" {
+				name = u.Name
+			}
+			if uname == "" || uname == "-" {
+				uname = u.User
+			}
+		}
+	}
+	if name == "" {
+		name = "User"
+	}
+	if uname == "" {
+		uname = "-"
+	}
+	return name, uname
+}
+
+func rememberGroup(chatID int64, title, uname, invite string) {
+	chatID = canonChatID(chatID)
+	if chatID == 0 {
+		return
+	}
+	cur := cachedGroupOf(chatID)
+	if title != "" && title != "Group" {
+		cur.Title = title
+	}
+	if uname != "" && uname != "-" {
+		cur.Uname = strings.TrimPrefix(uname, "@")
+	}
+	if invite != "" && invite != "-" && invite != "private" {
+		cur.Invite = invite
+	}
+	groupCache.Store(chatID, cur)
+}
+
+func cachedGroupOf(chatID int64) cachedGroup {
+	chatID = canonChatID(chatID)
+	if v, ok := groupCache.Load(chatID); ok {
+		if g, ok := v.(cachedGroup); ok {
+			return g
+		}
+	}
+	return cachedGroup{}
+}
+
+func exportInvite(chatID int64) string {
+	if Bot == nil || chatID == 0 {
+		return ""
+	}
+	peer, err := Bot.ResolvePeer(chatID)
+	if err != nil || peer == nil {
+		return ""
+	}
+	res, err := Bot.MessagesExportChatInvite(&telegram.MessagesExportChatInviteParams{Peer: peer})
+	if err != nil || res == nil {
+		return ""
+	}
+	switch inv := res.(type) {
+	case *telegram.ChatInviteExported:
+		return strings.TrimSpace(inv.Link)
+	default:
+		s := fmt.Sprint(res)
+		if i := strings.Index(s, "https://t.me/"); i >= 0 {
+			link := s[i:]
+			if j := strings.IndexAny(link, " \t\n\"'"); j > 0 {
+				link = link[:j]
+			}
+			return link
+		}
+	}
+	return ""
+}
+
+func refreshGroupMeta(chatID int64) cachedGroup {
+	chatID = canonChatID(chatID)
+	cur := cachedGroupOf(chatID)
+	if Bot == nil {
+		return cur
+	}
+	if ch, err := Bot.GetChannel(chatID); err == nil && ch != nil {
+		if strings.TrimSpace(ch.Title) != "" {
+			cur.Title = ch.Title
+		}
+		if strings.TrimSpace(ch.Username) != "" {
+			cur.Uname = ch.Username
+		}
+	} else if chat, err := Bot.GetChat(chatID); err == nil && chat != nil {
+		if strings.TrimSpace(chat.Title) != "" {
+			cur.Title = chat.Title
+		}
+	}
+	if cur.Uname != "" {
+		cur.Invite = "https://t.me/" + strings.TrimPrefix(cur.Uname, "@")
+	} else if inv := exportInvite(chatID); inv != "" {
+		cur.Invite = inv
+	}
+	groupCache.Store(chatID, cur)
+	return cur
 }
 
 func profileURL(uid int64, username string) string {
@@ -73,35 +204,7 @@ func userBits(u *telegram.UserObj) (name, uname string, uid int64) {
 	if strings.TrimSpace(u.Username) != "" {
 		uname = "@" + strings.TrimSpace(u.Username)
 	}
-	return
-}
-
-func groupTypeAndLink(chatID int64) (gtype, link, title string) {
-	gtype = smallcaps("private")
-	link = "-"
-	title = "Group"
-	if Bot == nil {
-		return
-	}
-	ids := []int64{chatID, canonChatID(chatID)}
-	for _, id := range ids {
-		if ch, err := Bot.GetChannel(id); err == nil && ch != nil {
-			if strings.TrimSpace(ch.Title) != "" {
-				title = ch.Title
-			}
-			if uname := strings.TrimSpace(ch.Username); uname != "" {
-				gtype = smallcaps("public")
-				link = "https://t.me/" + uname
-			}
-			return
-		}
-	}
-	for _, id := range ids {
-		if chat, err := Bot.GetChat(id); err == nil && chat != nil && strings.TrimSpace(chat.Title) != "" {
-			title = chat.Title
-			return
-		}
-	}
+	rememberUser(uid, name, uname)
 	return
 }
 
@@ -110,12 +213,11 @@ func logBotMembership(chatID int64, byID int64, byName, byUser string, kicked bo
 	if LoggerID == 0 || chatID == 0 || chatID == LoggerID || chatID == canonChatID(LoggerID) {
 		return
 	}
-	if byName == "" {
-		byName = "User"
+	byName, byUser = userFromCache(byID, byName, byUser)
+	if !kicked && byName == "User" && (byUser == "-" || byUser == "") {
+		return
 	}
-	if byUser == "" {
-		byUser = "-"
-	}
+	rememberUser(byID, byName, byUser)
 	key := fmt.Sprintf("%d:%v", chatID, kicked)
 	if v, ok := memLogOnce.Load(key); ok {
 		if t, ok := v.(time.Time); ok && time.Since(t) < 15*time.Second {
@@ -123,26 +225,47 @@ func logBotMembership(chatID int64, byID int64, byName, byUser string, kicked bo
 		}
 	}
 	memLogOnce.Store(key, time.Now())
-	gtype, link, title := groupTypeAndLink(chatID)
+
+	meta := refreshGroupMeta(chatID)
+	if meta.Title == "" {
+		meta = cachedGroupOf(chatID)
+	}
+	title := meta.Title
+	if title == "" {
+		title = chatTitleOf(chatID)
+	}
+	if title == "" {
+		title = "Unknown Group"
+	}
+	gtype := smallcaps("private")
+	link := meta.Invite
+	if meta.Uname != "" {
+		gtype = smallcaps("public")
+		link = "https://t.me/" + strings.TrimPrefix(meta.Uname, "@")
+	}
+	if link == "" {
+		link = "private"
+	}
+
 	head := smallcaps("bot added in new group")
 	if kicked {
 		head = smallcaps("bot was kick from group")
 	}
 	body := "<blockquote expandable><b>" + head + "</b>\n\n" +
-		smallcaps("title") + " : " + richEsc(title) + "\n" +
 		smallcaps("name") + " : " + mentionHTML(byID, byName) + "\n" +
 		smallcaps("u name") + " : <code>" + richEsc(byUser) + "</code>\n" +
 		smallcaps("u id") + " : <code>" + fmt.Sprintf("%d", byID) + "</code>\n" +
 		smallcaps("g name") + " : " + richEsc(title) + "\n" +
 		smallcaps("g id") + " : <code>" + fmt.Sprintf("%d", chatID) + "</code>\n" +
-		smallcaps("g type") + " : " + gtype
-	if link != "-" {
-		body += "\n" + smallcaps("link") + " : <a href=\"" + richEsc(link) + "\">" + richEsc(link) + "</a>"
+		smallcaps("g type") + " : " + gtype + "\n" +
+		smallcaps("link") + " : "
+	if strings.HasPrefix(link, "http") {
+		body += "<a href=\"" + richEsc(link) + "\">" + richEsc(link) + "</a>"
 	} else {
-		body += "\n" + smallcaps("link") + " : <code>private</code>"
+		body += "<code>" + richEsc(link) + "</code>"
 	}
 	body += "</blockquote>"
-	log.Println("group membership log kicked=", kicked, "chat=", chatID, "by=", byID, "user=", byUser)
+	log.Println("group membership log kicked=", kicked, "chat=", chatID, "title=", title, "by=", byUser)
 	sendLogger(body, profileMarkup(byID, byUser))
 }
 
@@ -172,6 +295,9 @@ func handleParticipant(p *telegram.ParticipantUpdate) error {
 		return nil
 	}
 	chatID := canonChatID(p.ChannelID())
+	if p.Channel != nil && strings.TrimSpace(p.Channel.Title) != "" {
+		rememberGroup(chatID, p.Channel.Title, p.Channel.Username, "")
+	}
 	byName, byUser, byID := userBits(p.Actor)
 	if byID == 0 {
 		byName, byUser, byID = userBits(p.User)
@@ -179,6 +305,7 @@ func handleParticipant(p *telegram.ParticipantUpdate) error {
 	if added {
 		addServedChat(chatID)
 		addBroadcastChat(chatID, "group")
+		go refreshGroupMeta(chatID)
 	}
 	go logBotMembership(chatID, byID, byName, byUser, kicked)
 	return nil
@@ -204,9 +331,15 @@ func handleServiceMessage(m *telegram.NewMessage) error {
 	}
 	log.Println("service membership", kind)
 	chatID := canonChatID(m.ChatID())
+	if m.Channel != nil && strings.TrimSpace(m.Channel.Title) != "" {
+		rememberGroup(chatID, m.Channel.Title, m.Channel.Username, "")
+	} else if m.Chat != nil && strings.TrimSpace(m.Chat.Title) != "" {
+		rememberGroup(chatID, m.Chat.Title, "", "")
+	}
 	if added {
 		addServedChat(chatID)
 		addBroadcastChat(chatID, "group")
+		go refreshGroupMeta(chatID)
 	}
 	go logBotMembership(chatID, userIDOf(m), senderFullName(m), senderUsername(m), kicked)
 	return nil
@@ -227,9 +360,11 @@ func handleRawChannelParticipant(u telegram.Update, c *telegram.Client) error {
 	added := !kicked
 	log.Println("raw channel participant added=", added, "kicked=", kicked, "new=", newName)
 	byName, byUser, byID := "User", "-", upd.ActorID
+	byName, byUser = userFromCache(byID, byName, byUser)
 	if added {
 		addServedChat(chatID)
 		addBroadcastChat(chatID, "group")
+		go refreshGroupMeta(chatID)
 	}
 	go logBotMembership(chatID, byID, byName, byUser, kicked)
 	return nil
