@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"math/rand"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -180,20 +181,71 @@ func helpListCaption(uid int64, name string) string {
 	return helpInner(uid, name)
 }
 
+func loggerTargets() []int64 {
+	ids := []int64{LoggerID}
+	if LoggerID == 0 {
+		return ids
+	}
+	s := strconv.FormatInt(LoggerID, 10)
+	if strings.HasPrefix(s, "-100") {
+		if raw, err := strconv.ParseInt(s[4:], 10, 64); err == nil && raw != 0 {
+			ids = append(ids, raw, -raw)
+		}
+	}
+	return ids
+}
+
 func sendLogger(text string, markup telegram.ReplyMarkup) {
-	if LoggerID == 0 || Bot == nil {
-		log.Println("logger skip: LOGGER_ID/LOG_GROUP_ID is 0")
+	if LoggerID == 0 {
+		log.Println("logger skip: LOGGER_ID is 0")
 		return
 	}
-	_, err := Bot.SendMessage(LoggerID, text, &telegram.SendOptions{
-		ParseMode:   "HTML",
-		ReplyMarkup: markup,
-	})
-	if err != nil {
-		log.Println("logger send failed:", err)
-	} else {
-		log.Println("logger sent to", LoggerID)
+	clients := []*telegram.Client{Bot, Assistant}
+	var last error
+	for _, c := range clients {
+		if c == nil {
+			continue
+		}
+		for _, id := range loggerTargets() {
+			_, _ = c.ResolvePeer(id)
+			_, err := c.SendMessage(id, text, &telegram.SendOptions{
+				ParseMode:   "HTML",
+				ReplyMarkup: markup,
+			})
+			if err == nil {
+				log.Println("logger sent to", id)
+				return
+			}
+			last = err
+			log.Println("logger try", id, "failed:", err)
+		}
 	}
+	if last != nil {
+		log.Println("logger send failed:", last)
+	}
+}
+
+func warmLogger() {
+	if LoggerID == 0 {
+		log.Println("LOGGER_ID empty")
+		return
+	}
+	log.Println("warming logger", LoggerID)
+	for _, id := range loggerTargets() {
+		if Bot != nil {
+			if _, err := Bot.GetChat(id); err != nil {
+				log.Println("bot GetChat", id, err)
+			}
+			_, _ = Bot.ResolvePeer(id)
+		}
+		if Assistant != nil {
+			if _, err := Assistant.GetChat(id); err != nil {
+				log.Println("assistant GetChat", id, err)
+			}
+			_, _ = Assistant.ResolvePeer(id)
+		}
+	}
+	sendLogger("<blockquote>logger online</blockquote>", nil)
 }
 
 func chatTitleOf(chatID int64) string {
@@ -232,7 +284,7 @@ func playModeOf(song Song, queued bool) string {
 }
 
 func logPlayAction(chatID int64, song Song, queued bool) {
-	if LoggerID == 0 || Bot == nil || chatID == 0 {
+	if LoggerID == 0 || chatID == 0 {
 		log.Println("play log skip: logger id empty")
 		return
 	}
@@ -265,7 +317,7 @@ func logPlayAction(chatID int64, song Song, queued bool) {
 }
 
 func logNewUserStart(m *telegram.NewMessage) {
-	if LoggerID == 0 || Bot == nil || m == nil {
+	if LoggerID == 0 || m == nil {
 		log.Println("start log skip: logger id empty or no message")
 		return
 	}
