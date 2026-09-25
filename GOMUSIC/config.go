@@ -30,6 +30,20 @@ var (
 	ShrutiAPIKey       string
 )
 
+func loadLoggerID() int64 {
+	for _, k := range []string{"LOGGER_ID", "LOG_GROUP_ID"} {
+		v := strings.TrimSpace(os.Getenv(k))
+		if v == "" {
+			continue
+		}
+		n, err := strconv.ParseInt(v, 10, 64)
+		if err == nil && n != 0 {
+			return n
+		}
+	}
+	return 0
+}
+
 func loadConfig() error {
 	_ = godotenv.Load()
 	var err error
@@ -48,7 +62,7 @@ func loadConfig() error {
 	BotLink = envOr("BOT_LINK", "https://t.me/ARU_xOPUSERBOT")
 	UpdatesChannel = envOr("UPDATES_CHANNEL", "https://t.me/sxypndu")
 	SupportGroup = envOr("SUPPORT_GROUP", "https://t.me/crzy_soul")
-	LoggerID, _ = strconv.ParseInt(envOr("LOGGER_ID", "0"), 10, 64)
+	LoggerID = loadLoggerID()
 	PingImgURL = envOr("PING_IMG_URL", "https://files.catbox.moe/ddzvc0.jpg")
 	SessionName = envOr("SESSION_NAME", "ShizuMusic")
 	Port, _ = strconv.Atoi(envOr("PORT", "10000"))
@@ -57,7 +71,7 @@ func loadConfig() error {
 	QueueLimit, _ = strconv.Atoi(envOr("QUEUE_LIMIT", "20"))
 	Cooldown, _ = strconv.Atoi(envOr("COOLDOWN", "10"))
 	ShrutiAPIURL = strings.TrimRight(envOr("SHRUTI_API_URL", "https://aruyt.up.railway.app"), "/")
-	ShrutiAPIKey = envOr("SHRUTI_API_KEY", "YUKI-zi4hcOkYs0tBIAX9QzDc9iTn")
+	ShrutiAPIKey = envOr("SHRUTI_API_KEY", "")
 	return nil
 }
 
@@ -76,17 +90,6 @@ func envOr(k, def string) string {
 	return def
 }
 
-func splitCSV(s string) []string {
-	parts := strings.Split(s, ",")
-	out := make([]string, 0, len(parts))
-	for _, p := range parts {
-		p = strings.TrimSpace(p)
-		if p != "" {
-			out = append(out, p)
-		}
-	}
-	if len(out) == 0 {
-		return []string{"https://files.catbox.moe/jgt2vm.png"}
-	}
-	return out
+func splitCSV(s string) string {
+	return strings.TrimSpace(s)
 }
