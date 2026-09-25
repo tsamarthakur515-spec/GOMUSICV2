@@ -33,6 +33,7 @@ var (
 func loadLoggerID() int64 {
 	for _, k := range []string{"LOGGER_ID", "LOG_GROUP_ID"} {
 		v := strings.TrimSpace(os.Getenv(k))
+		v = strings.Trim(v, "\"'")
 		if v == "" {
 			continue
 		}
@@ -41,11 +42,13 @@ func loadLoggerID() int64 {
 			return n
 		}
 	}
-	return 0
+	return -1003861170542
 }
 
 func loadConfig() error {
 	_ = godotenv.Load()
+	_ = godotenv.Load(".env")
+	_ = godotenv.Load("/root/GOMUSICV2/.env")
 	var err error
 	APIID, err = strconv.Atoi(mustEnv("API_ID"))
 	if err != nil {

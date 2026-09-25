@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"github.com/amarnathcjd/gogram/telegram"
@@ -73,14 +74,22 @@ func initClients() error {
 		return fmt.Errorf("STRING_SESSION is empty - set it in .env")
 	}
 
+	_ = os.MkdirAll("sessions", 0o755)
+	botCache := telegram.NewCache("sessions/bot.cache", &telegram.CacheConfig{
+		MaxSize:  5000,
+		Memory:   false,
+		Disabled: false,
+	})
 	botClient, err := telegram.NewClient(telegram.ClientConfig{
 		AppID:           int32(APIID),
 		AppHash:         APIHash,
-		MemorySession:   true,
+		Session:         "sessions/bot.session",
+		MemorySession:   false,
 		ParseMode:       "HTML",
 		NoPreconnect:    true,
 		RawUpdates:      true,
 		DisableGapFetch: true,
+		Cache:           botCache,
 	})
 	if err != nil {
 		return err
