@@ -72,8 +72,8 @@ func loadConfig() error {
 	}
 	BotName = envOr("BOT_NAME", "Shizu Music")
 	BotLink = envOr("BOT_LINK", "https://t.me/ARU_xOPUSERBOT")
-	UpdatesChannel = envOr("UPDATES_CHANNEL", "https://t.me/sxypndu")
-	SupportGroup = envOr("SUPPORT_GROUP", "https://t.me/crzy_soul")
+	UpdatesChannel = envOr("UPDATES_CHANNEL", "https://t.me/+kycml-zhzSs2Zjdl")
+	SupportGroup = envOr("SUPPORT_GROUP", "https://t.me/+qwlkJNntCU0yMjhl")
 	LoggerID = loadLoggerID()
 	PingImgURL = envOr("PING_IMG_URL", "https://files.catbox.moe/ddzvc0.jpg")
 	SessionName = envOr("SESSION_NAME", "ShizuMusic")
