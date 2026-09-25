@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"log"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -12,13 +13,28 @@ import (
 
 var memLogOnce sync.Map
 
+func canonChatID(id int64) int64 {
+	if id == 0 {
+		return 0
+	}
+	s := strconv.FormatInt(id, 10)
+	if strings.HasPrefix(s, "-100") {
+		return id
+	}
+	raw := id
+	if raw < 0 {
+		raw = -raw
+	}
+	if raw >= 1000000000 && raw < 1000000000000 {
+		return -1000000000000 - raw
+	}
+	return id
+}
+
 func profileURL(uid int64, username string) string {
 	u := strings.TrimPrefix(strings.TrimSpace(username), "@")
 	if u != "" && u != "-" {
 		return "https://t.me/" + u
-	}
-	if uid != 0 {
-		return fmt.Sprintf("tg://user?id=%d", uid)
 	}
 	return ""
 }
@@ -67,31 +83,42 @@ func groupTypeAndLink(chatID int64) (gtype, link, title string) {
 	if Bot == nil {
 		return
 	}
-	if ch, err := Bot.GetChannel(chatID); err == nil && ch != nil {
-		if strings.TrimSpace(ch.Title) != "" {
-			title = ch.Title
+	ids := []int64{chatID, canonChatID(chatID)}
+	for _, id := range ids {
+		if ch, err := Bot.GetChannel(id); err == nil && ch != nil {
+			if strings.TrimSpace(ch.Title) != "" {
+				title = ch.Title
+			}
+			if uname := strings.TrimSpace(ch.Username); uname != "" {
+				gtype = smallcaps("public")
+				link = "https://t.me/" + uname
+			}
+			return
 		}
-		if uname := strings.TrimSpace(ch.Username); uname != "" {
-			gtype = smallcaps("public")
-			link = "https://t.me/" + uname
-		}
-		return
 	}
-	if chat, err := Bot.GetChat(chatID); err == nil && chat != nil {
-		if strings.TrimSpace(chat.Title) != "" {
+	for _, id := range ids {
+		if chat, err := Bot.GetChat(id); err == nil && chat != nil && strings.TrimSpace(chat.Title) != "" {
 			title = chat.Title
+			return
 		}
 	}
 	return
 }
 
 func logBotMembership(chatID int64, byID int64, byName, byUser string, kicked bool) {
-	if LoggerID == 0 || chatID == 0 || chatID == LoggerID {
+	chatID = canonChatID(chatID)
+	if LoggerID == 0 || chatID == 0 || chatID == LoggerID || chatID == canonChatID(LoggerID) {
 		return
+	}
+	if byName == "" {
+		byName = "User"
+	}
+	if byUser == "" {
+		byUser = "-"
 	}
 	key := fmt.Sprintf("%d:%v", chatID, kicked)
 	if v, ok := memLogOnce.Load(key); ok {
-		if t, ok := v.(time.Time); ok && time.Since(t) < 10*time.Second {
+		if t, ok := v.(time.Time); ok && time.Since(t) < 15*time.Second {
 			return
 		}
 	}
@@ -115,7 +142,7 @@ func logBotMembership(chatID int64, byID int64, byName, byUser string, kicked bo
 		body += "\n" + smallcaps("link") + " : <code>private</code>"
 	}
 	body += "</blockquote>"
-	log.Println("group membership log kicked=", kicked, "chat=", chatID, "by=", byID)
+	log.Println("group membership log kicked=", kicked, "chat=", chatID, "by=", byID, "user=", byUser)
 	sendLogger(body, profileMarkup(byID, byUser))
 }
 
@@ -144,10 +171,7 @@ func handleParticipant(p *telegram.ParticipantUpdate) error {
 	if !added && !kicked {
 		return nil
 	}
-	chatID := p.ChannelID()
-	if chatID > 0 {
-		chatID = -1000000000000 - chatID
-	}
+	chatID := canonChatID(p.ChannelID())
 	byName, byUser, byID := userBits(p.Actor)
 	if byID == 0 {
 		byName, byUser, byID = userBits(p.User)
@@ -179,11 +203,12 @@ func handleServiceMessage(m *telegram.NewMessage) error {
 		return nil
 	}
 	log.Println("service membership", kind)
+	chatID := canonChatID(m.ChatID())
 	if added {
-		addServedChat(m.ChatID())
-		addBroadcastChat(m.ChatID(), "group")
+		addServedChat(chatID)
+		addBroadcastChat(chatID, "group")
 	}
-	go logBotMembership(m.ChatID(), userIDOf(m), senderFullName(m), senderUsername(m), kicked)
+	go logBotMembership(chatID, userIDOf(m), senderFullName(m), senderUsername(m), kicked)
 	return nil
 }
 
@@ -196,7 +221,7 @@ func handleRawChannelParticipant(u telegram.Update, c *telegram.Client) error {
 	if self == 0 || upd.UserID != self {
 		return nil
 	}
-	chatID := int64(-1000000000000) - upd.ChannelID
+	chatID := canonChatID(-1000000000000 - upd.ChannelID)
 	newName := strings.ToLower(fmt.Sprintf("%T", upd.NewParticipant))
 	kicked := strings.Contains(newName, "banned") || strings.Contains(newName, "left") || upd.NewParticipant == nil
 	added := !kicked
