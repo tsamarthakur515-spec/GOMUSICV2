@@ -39,6 +39,23 @@ func mentionHTML(uid int64, name string) string {
 	return fmt.Sprintf(`<a href="tg://user?id=%d">%s</a>`, uid, richEsc(name))
 }
 
+func userBits(u *telegram.UserObj) (name, uname string, uid int64) {
+	name = "User"
+	uname = "-"
+	if u == nil {
+		return
+	}
+	uid = u.ID
+	n := strings.TrimSpace(strings.TrimSpace(u.FirstName) + " " + strings.TrimSpace(u.LastName))
+	if n != "" {
+		name = sanitizeDisplayName(n)
+	}
+	if strings.TrimSpace(u.Username) != "" {
+		uname = "@" + strings.TrimSpace(u.Username)
+	}
+	return
+}
+
 func groupTypeAndLink(chatID int64) (gtype, link, title string) {
 	gtype = smallcaps("private")
 	link = "-"
@@ -60,17 +77,10 @@ func groupTypeAndLink(chatID int64) (gtype, link, title string) {
 	return
 }
 
-func logBotGroupEvent(m *telegram.NewMessage, kicked bool) {
-	if LoggerID == 0 || Bot == nil || m == nil || m.IsPrivate() {
+func logBotMembership(chatID int64, byID int64, byName, byUser string, kicked bool) {
+	if LoggerID == 0 || chatID == 0 || chatID == LoggerID {
 		return
 	}
-	chatID := m.ChatID()
-	if chatID == 0 || chatID == LoggerID {
-		return
-	}
-	uid := userIDOf(m)
-	name := senderFullName(m)
-	uname := senderUsername(m)
 	gtype, link, title := groupTypeAndLink(chatID)
 	head := smallcaps("bot added in new group")
 	if kicked {
@@ -78,17 +88,20 @@ func logBotGroupEvent(m *telegram.NewMessage, kicked bool) {
 	}
 	body := "<blockquote expandable><b>" + head + "</b>\n\n" +
 		smallcaps("title") + " : " + richEsc(title) + "\n" +
-		smallcaps("name") + " : " + mentionHTML(uid, name) + "\n" +
-		smallcaps("u name") + " : <code>" + richEsc(uname) + "</code>\n" +
-		smallcaps("u id") + " : <code>" + fmt.Sprintf("%d", uid) + "</code>\n" +
+		smallcaps("name") + " : " + mentionHTML(byID, byName) + "\n" +
+		smallcaps("u name") + " : <code>" + richEsc(byUser) + "</code>\n" +
+		smallcaps("u id") + " : <code>" + fmt.Sprintf("%d", byID) + "</code>\n" +
 		smallcaps("g name") + " : " + richEsc(title) + "\n" +
 		smallcaps("g id") + " : <code>" + fmt.Sprintf("%d", chatID) + "</code>\n" +
 		smallcaps("g type") + " : " + gtype
 	if link != "-" {
 		body += "\n" + smallcaps("link") + " : <a href=\"" + richEsc(link) + "\">" + richEsc(link) + "</a>"
+	} else {
+		body += "\n" + smallcaps("link") + " : <code>private</code>"
 	}
 	body += "</blockquote>"
-	sendLogger(body, profileMarkup(uid, uname))
+	log.Println("group membership log kicked=", kicked, "chat=", chatID, "by=", byID)
+	sendLogger(body, profileMarkup(byID, byUser))
 }
 
 func botSelfID() int64 {
@@ -102,49 +115,100 @@ func botSelfID() int64 {
 	return me.ID
 }
 
-func actionHasBot(ids []int64, self int64) bool {
-	if self == 0 {
-		return false
-	}
-	for _, id := range ids {
-		if id == self {
-			return true
-		}
-	}
-	return false
-}
-
-func handleServiceMessage(m *telegram.NewMessage) error {
-	if m == nil || m.Message == nil || m.IsPrivate() {
-		return nil
-	}
-	act := m.Message.Action
-	if act == nil {
+func handleParticipant(p *telegram.ParticipantUpdate) error {
+	if p == nil || p.User == nil {
 		return nil
 	}
 	self := botSelfID()
-	switch a := act.(type) {
-	case *telegram.MessageActionChatAddUser:
-		if actionHasBot(a.Users, self) {
-			addServedChat(m.ChatID())
-			addBroadcastChat(m.ChatID(), "group")
-			go logBotGroupEvent(m, false)
-		}
-	case *telegram.MessageActionChatJoinedByLink:
-		if self != 0 && userIDOf(m) == self {
-			addServedChat(m.ChatID())
-			addBroadcastChat(m.ChatID(), "group")
-			go logBotGroupEvent(m, false)
-		}
-	case *telegram.MessageActionChatDeleteUser:
-		if self != 0 && a.UserID == self {
-			go logBotGroupEvent(m, true)
-		}
-	default:
-		name := strings.ToLower(fmt.Sprintf("%T", act))
-		if strings.Contains(name, "adduser") || strings.Contains(name, "joined") {
-			log.Println("group service action", name)
+	if self == 0 || p.User.ID != self {
+		return nil
+	}
+	added := p.IsAdded() || p.IsJoined()
+	kicked := p.IsKicked() || p.IsLeft() || p.IsBanned()
+	log.Println("participant self added=", added, "kicked=", kicked, "chat=", p.ChannelID())
+	if !added && !kicked {
+		return nil
+	}
+	chatID := p.ChannelID()
+	if chatID > 0 {
+		chatID = -1000000000000 - chatID
+	}
+	byName, byUser, byID := userBits(p.Actor)
+	if byID == 0 {
+		byName, byUser, byID = userBits(p.User)
+	}
+	if added {
+		addServedChat(chatID)
+		addBroadcastChat(chatID, "group")
+	}
+	go logBotMembership(chatID, byID, byName, byUser, kicked)
+	return nil
+}
+
+func handleServiceMessage(m *telegram.NewMessage) error {
+	if m == nil || m.Message == nil || m.Message.Action == nil || m.IsPrivate() {
+		return nil
+	}
+	self := botSelfID()
+	if self == 0 {
+		return nil
+	}
+	kind := strings.ToLower(fmt.Sprintf("%T %v", m.Message.Action, m.Message.Action))
+	hasBot := strings.Contains(kind, fmt.Sprintf("%d", self))
+	added := strings.Contains(kind, "adduser") || strings.Contains(kind, "joined")
+	kicked := strings.Contains(kind, "deleteuser") || strings.Contains(kind, "kick")
+	if !hasBot && userIDOf(m) != self {
+		return nil
+	}
+	if !added && !kicked {
+		return nil
+	}
+	log.Println("service membership", kind)
+	if added {
+		addServedChat(m.ChatID())
+		addBroadcastChat(m.ChatID(), "group")
+	}
+	go logBotMembership(m.ChatID(), userIDOf(m), senderFullName(m), senderUsername(m), kicked)
+	return nil
+}
+
+func handleRawChannelParticipant(u telegram.Update, c *telegram.Client) error {
+	upd, ok := u.(*telegram.UpdateChannelParticipant)
+	if !ok || upd == nil {
+		return nil
+	}
+	self := botSelfID()
+	if self == 0 || upd.UserID != self {
+		return nil
+	}
+	chatID := int64(-1000000000000) - upd.ChannelID
+	if chatID >= 0 {
+		chatID = -int64(upd.ChannelID)
+	}
+	newName := fmt.Sprintf("%T", upd.NewParticipant)
+	oldName := fmt.Sprintf("%T", upd.PrevParticipant)
+	kicked := strings.Contains(strings.ToLower(newName), "banned") ||
+		strings.Contains(strings.ToLower(newName), "left") ||
+		upd.NewParticipant == nil && upd.PrevParticipant != nil
+	added := strings.Contains(strings.ToLower(newName), "participant") && !kicked
+	if strings.Contains(strings.ToLower(oldName), "empty") || upd.PrevParticipant == nil {
+		added = !kicked
+	}
+	log.Println("raw channel participant added=", added, "kicked=", kicked, "new=", newName)
+	if !added && !kicked {
+		return nil
+	}
+	byName, byUser := "User", "-"
+	byID := upd.ActorID
+	if c != nil && byID != 0 {
+		if uobj, err := c.GetUser(byID); err == nil {
+			byName, byUser, byID = userBits(uobj)
 		}
 	}
+	if added {
+		addServedChat(chatID)
+		addBroadcastChat(chatID, "group")
+	}
+	go logBotMembership(chatID, byID, byName, byUser, kicked)
 	return nil
 }
