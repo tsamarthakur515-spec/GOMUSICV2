@@ -63,7 +63,9 @@ func registerHandlers() {
 	Bot.On("message:/broadcast", live(handleBroadcast))
 	Bot.On("message:/gcast", live(handleBroadcast))
 	Bot.On("message:/stats", live(handleStats))
-	Bot.On(telegram.OnNewMessage, handleServiceMessage)
+	Bot.On(telegram.OnParticipant, handleParticipant)
+	Bot.On(telegram.OnAction, handleServiceMessage)
+	Bot.AddRawHandler(&telegram.UpdateChannelParticipant{}, handleRawChannelParticipant)
 	Bot.On(telegram.OnCallbackQuery, handleCallbackQuery)
 }
 
