@@ -17,6 +17,11 @@ func main() {
 	if err := loadConfig(); err != nil {
 		log.Fatal(err)
 	}
+	if LoggerID == 0 {
+		log.Println("LOGGER_ID / LOG_GROUP_ID is empty — start/play logs disabled")
+	} else {
+		log.Println("start/play logs will go to", LoggerID)
+	}
 
 	startStore()
 	log.Println("Memory store ready (no MongoDB).")
