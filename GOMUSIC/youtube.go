@@ -225,54 +225,13 @@ func searchYouTubeHTML(query string) (ytItem, error) {
 	return ytItem{Link: link, Title: title, Duration: "0:00", Thumbnail: thumbFor(link, "")}, nil
 }
 
-func ytdlpBaseArgs() []string {
-	args := []string{
-		"--no-warnings", "--no-check-certificates", "--no-playlist",
-		"--extractor-args", "youtube:player_client=android_music,mweb",
-	}
-	if st, err := os.Stat("cookies.txt"); err == nil && st.Size() > 10 {
-		args = append(args, "--cookies", "cookies.txt")
-	}
-	return args
-}
-
 func resolveDirectURL(raw string, video bool) (streamSrc, error) {
 	if st, err := os.Stat(raw); err == nil && !st.IsDir() && st.Size() > 1024 {
 		return streamSrc{File: raw, Audio: raw, Video: raw}, nil
 	}
-	vid := extractVideoID(raw)
-	link := raw
-	if len(vid) == 11 {
-		link = "https://www.youtube.com/watch?v=" + vid
-	}
-	format := "bestaudio[ext=m4a]/bestaudio/best"
-	if video {
-		format = "best[height<=480][ext=mp4]/best[height<=480]/best"
-	}
-	args := append(ytdlpBaseArgs(), "-f", format, "-g", "--max-downloads", "1", link)
-	cmd := exec.Command("yt-dlp", args...)
-	out, err := cmd.CombinedOutput()
-	if err == nil {
-		lines := []string{}
-		for _, line := range strings.Split(string(out), "\n") {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "http://") || strings.HasPrefix(line, "https://") {
-				lines = append(lines, line)
-			}
-		}
-		if len(lines) == 1 {
-			return streamSrc{Audio: lines[0], Video: lines[0]}, nil
-		}
-		if len(lines) >= 2 {
-			return streamSrc{Video: lines[0], Audio: lines[1]}, nil
-		}
-	}
-	path, derr := resolveStream(raw, video)
-	if derr != nil {
-		if err != nil {
-			return streamSrc{}, fmt.Errorf("stream url: %v; download: %v", err, derr)
-		}
-		return streamSrc{}, derr
+	path, err := resolveStream(raw, video)
+	if err != nil {
+		return streamSrc{}, err
 	}
 	return streamSrc{File: path, Audio: path, Video: path}, nil
 }
@@ -283,7 +242,7 @@ func resolveStream(raw string, video bool) (string, error) {
 	}
 	vid := extractVideoID(raw)
 	_ = os.MkdirAll(downloadDir, 0o755)
-	typ, ext := "audio", ".mp3"
+	typ, ext := "audio", ".m4a"
 	if video {
 		typ, ext = "video", ".mp4"
 	}
@@ -294,12 +253,17 @@ func resolveStream(raw string, video bool) (string, error) {
 		}
 		_ = os.Remove(fp)
 	}
+	for _, old := range []string{".mp3", ".webm", ".mp4"} {
+		p := filepath.Join(downloadDir, vid+old)
+		if st, err := os.Stat(p); err == nil && st.Size() > 1024 {
+			if !video || fileHasVideo(p) {
+				return p, nil
+			}
+		}
+	}
 	path, err := downloadViaAPI(vid, typ, fp)
 	if err != nil {
-		path, err = downloadViaYTDLP(vid, video, fp)
-		if err != nil {
-			return "", err
-		}
+		return "", fmt.Errorf("download API: %v", err)
 	}
 	if video && !fileHasVideo(path) {
 		_ = os.Remove(path)
@@ -313,101 +277,38 @@ func downloadViaAPI(videoID, typ, dest string) (string, error) {
 		return "", fmt.Errorf("download API not configured")
 	}
 	full := "https://www.youtube.com/watch?v=" + videoID
-	variants := []string{full, videoID}
-	types := []string{typ}
-	if typ == "video" {
-		types = []string{"video", "mp4"}
-	}
 	client := &http.Client{Timeout: 15 * time.Minute}
-	var last error
-	for i := 0; i < 2; i++ {
-		useURL := variants[i%len(variants)]
-		useType := types[i%len(types)]
-		u, _ := url.Parse(ShrutiAPIURL + "/download")
-		q := u.Query()
-		q.Set("url", useURL)
-		q.Set("type", useType)
-		q.Set("api_key", ShrutiAPIKey)
-		u.RawQuery = q.Encode()
-		resp, err := client.Get(u.String())
-		if err != nil {
-			last = err
-			continue
-		}
-		if resp.StatusCode != 200 {
-			body, _ := io.ReadAll(io.LimitReader(resp.Body, 400))
-			resp.Body.Close()
-			msg := strings.TrimSpace(string(body))
-			last = fmt.Errorf("API HTTP %d: %s", resp.StatusCode, msg)
-			if strings.Contains(strings.ToLower(msg), "416") || strings.Contains(strings.ToLower(msg), "range not satisfiable") {
-				return "", last
-			}
-			continue
-		}
-		f, err := os.Create(dest)
-		if err != nil {
-			resp.Body.Close()
-			return "", err
-		}
-		_, err = io.Copy(f, resp.Body)
-		resp.Body.Close()
-		f.Close()
-		if err != nil {
-			_ = os.Remove(dest)
-			last = err
-			continue
-		}
-		st, _ := os.Stat(dest)
-		if st == nil || st.Size() < 1024 {
-			_ = os.Remove(dest)
-			last = fmt.Errorf("empty API file")
-			continue
-		}
-		return dest, nil
-	}
-	if last == nil {
-		last = fmt.Errorf("API download failed")
-	}
-	return "", last
-}
-
-func downloadViaYTDLP(videoID string, video bool, dest string) (string, error) {
-	_ = os.Remove(dest)
-	link := "https://www.youtube.com/watch?v=" + videoID
-	outTmpl := dest
-	if video {
-		outTmpl = strings.TrimSuffix(dest, filepath.Ext(dest)) + ".%(ext)s"
-	}
-	args := append(ytdlpBaseArgs(), "-o", outTmpl, "--no-part")
-	if video {
-		args = append(args, "-f", "best[height<=480]/best")
-	} else {
-		args = append(args, "-f", "bestaudio/best", "-x", "--audio-format", "mp3")
-	}
-	args = append(args, link)
-	cmd := exec.Command("yt-dlp", args...)
-	out, err := cmd.CombinedOutput()
+	u, _ := url.Parse(ShrutiAPIURL + "/download")
+	q := u.Query()
+	q.Set("url", full)
+	q.Set("type", typ)
+	q.Set("api_key", ShrutiAPIKey)
+	u.RawQuery = q.Encode()
+	resp, err := client.Get(u.String())
 	if err != nil {
-		return "", fmt.Errorf("yt-dlp: %v: %s", err, strings.TrimSpace(string(out)))
+		return "", err
 	}
-	if st, err := os.Stat(dest); err == nil && st.Size() > 1024 {
-		return dest, nil
+	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 400))
+		return "", fmt.Errorf("API HTTP %d: %s", resp.StatusCode, strings.TrimSpace(string(body)))
 	}
-	base := strings.TrimSuffix(dest, filepath.Ext(dest))
-	for _, ext := range []string{".mp4", ".mkv", ".webm", ".mp3", ".m4a"} {
-		p := base + ext
-		if st, err := os.Stat(p); err == nil && st.Size() > 1024 {
-			if p != dest {
-				_ = os.Rename(p, dest)
-				if _, err2 := os.Stat(dest); err2 == nil {
-					return dest, nil
-				}
-				return p, nil
-			}
-			return p, nil
-		}
+	f, err := os.Create(dest)
+	if err != nil {
+		return "", err
 	}
-	return "", fmt.Errorf("yt-dlp finished but file missing")
+	_, err = io.Copy(f, resp.Body)
+	f.Close()
+	if err != nil {
+		_ = os.Remove(dest)
+		return "", err
+	}
+	st, _ := os.Stat(dest)
+	if st == nil || st.Size() < 1024 {
+		_ = os.Remove(dest)
+		return "", fmt.Errorf("empty API file")
+	}
+	return dest, nil
 }
 
 func deleteFile(path string) {
