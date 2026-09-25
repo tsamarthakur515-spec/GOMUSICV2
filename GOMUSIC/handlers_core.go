@@ -63,6 +63,7 @@ func registerHandlers() {
 	Bot.On("message:/broadcast", live(handleBroadcast))
 	Bot.On("message:/gcast", live(handleBroadcast))
 	Bot.On("message:/stats", live(handleStats))
+	Bot.On(telegram.OnNewMessage, handleServiceMessage)
 	Bot.On(telegram.OnCallbackQuery, handleCallbackQuery)
 }
 
@@ -208,10 +209,7 @@ func sendLogger(text string, markup telegram.ReplyMarkup) {
 		}
 		for _, id := range loggerTargets() {
 			_, _ = c.ResolvePeer(id)
-			_, err := c.SendMessage(id, text, &telegram.SendOptions{
-				ParseMode:   "HTML",
-				ReplyMarkup: markup,
-			})
+			_, err := sendHTML(c, id, text, markup)
 			if err == nil {
 				log.Println("logger sent to", id)
 				return
@@ -245,7 +243,6 @@ func warmLogger() {
 			_, _ = Assistant.ResolvePeer(id)
 		}
 	}
-	sendLogger("<blockquote>logger online</blockquote>", nil)
 }
 
 func chatTitleOf(chatID int64) string {
@@ -294,19 +291,13 @@ func logPlayAction(chatID int64, song Song, queued bool) {
 		head = smallcaps("new queue log")
 	}
 	body := "<blockquote expandable><b>" + head + "</b>\n\n" +
-		smallcaps("user") + " : " + richEsc(name) + " [<code>" + fmt.Sprintf("%d", song.RequesterID) + "</code>]\n" +
+		smallcaps("user") + " : " + mentionHTML(song.RequesterID, name) + " [<code>" + fmt.Sprintf("%d", song.RequesterID) + "</code>]\n" +
 		smallcaps("group") + " : " + richEsc(chatTitleOf(chatID)) + "\n" +
 		smallcaps("group id") + " : <code>" + fmt.Sprintf("%d", chatID) + "</code>\n" +
 		smallcaps("query/song") + " : " + richEsc(title) + "\n" +
 		smallcaps("source") + " : " + richEsc(playSourceOf(song)) + "\n" +
 		smallcaps("mode") + " : " + playModeOf(song, queued) + "</blockquote>"
-	var kb telegram.ReplyMarkup
-	if song.RequesterID != 0 {
-		kb = mixedKeyboard([][][2]string{{
-			{"OPEN PROFILE", fmt.Sprintf("tg://user?id=%d", song.RequesterID)},
-		}})
-	}
-	sendLogger(body, kb)
+	sendLogger(body, profileMarkup(song.RequesterID, ""))
 }
 
 func logNewUserStart(m *telegram.NewMessage) {
@@ -325,14 +316,11 @@ func logNewUserStart(m *telegram.NewMessage) {
 	uname := senderUsername(m)
 	total := getServedUsersCount()
 	body := "<blockquote expandable><b>NEW USER STARTED BOT</b>\n\n" +
-		"<b>NAME</b> — <code>" + richEsc(name) + "</code>\n" +
+		"<b>NAME</b> — " + mentionHTML(uid, name) + "\n" +
 		"<b>U NAME</b> — <code>" + richEsc(uname) + "</code>\n" +
 		"<b>U ID</b> — <code>" + fmt.Sprintf("%d", uid) + "</code>\n" +
 		"<b>TOTAL USER</b> — <code>" + fmt.Sprintf("%d", total) + "</code></blockquote>"
-	kb := mixedKeyboard([][][2]string{{
-		{"OPEN PROFILE", fmt.Sprintf("tg://user?id=%d", uid)},
-	}})
-	sendLogger(body, kb)
+	sendLogger(body, profileMarkup(uid, uname))
 }
 
 func handleStart(m *telegram.NewMessage) error {
