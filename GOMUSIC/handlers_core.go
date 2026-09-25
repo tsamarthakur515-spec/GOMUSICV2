@@ -252,19 +252,12 @@ func chatTitleOf(chatID int64) string {
 	if Bot == nil {
 		return "Group"
 	}
-	raw, err := Bot.GetChat(chatID)
-	if err != nil || raw == nil {
+	chat, err := Bot.GetChat(chatID)
+	if err != nil || chat == nil {
 		return "Group"
 	}
-	switch c := raw.(type) {
-	case *telegram.Channel:
-		if strings.TrimSpace(c.Title) != "" {
-			return c.Title
-		}
-	case *telegram.ChatObj:
-		if strings.TrimSpace(c.Title) != "" {
-			return c.Title
-		}
+	if t := strings.TrimSpace(chat.Title); t != "" {
+		return t
 	}
 	return "Group"
 }
