@@ -45,6 +45,15 @@ func loadLoggerID() int64 {
 	return -1003861170542
 }
 
+func firstEnv(keys ...string) string {
+	for _, k := range keys {
+		if v := strings.TrimSpace(os.Getenv(k)); v != "" {
+			return v
+		}
+	}
+	return ""
+}
+
 func loadConfig() error {
 	_ = godotenv.Load()
 	_ = godotenv.Load(".env")
@@ -73,8 +82,12 @@ func loadConfig() error {
 	MaxDurationSeconds, _ = strconv.Atoi(envOr("MAX_DURATION_SECONDS", "1800"))
 	QueueLimit, _ = strconv.Atoi(envOr("QUEUE_LIMIT", "20"))
 	Cooldown, _ = strconv.Atoi(envOr("COOLDOWN", "10"))
-	ShrutiAPIURL = strings.TrimRight(envOr("SHRUTI_API_URL", "https://aruyt.up.railway.app"), "/")
-	ShrutiAPIKey = envOr("SHRUTI_API_KEY", "")
+	apiURL := firstEnv("ARU_YT_URL", "SHRUTI_API_URL")
+	if apiURL == "" {
+		apiURL = "http://127.0.0.1:8080"
+	}
+	ShrutiAPIURL = strings.TrimRight(apiURL, "/")
+	ShrutiAPIKey = firstEnv("ARU_YT_KEY", "SHRUTI_API_KEY")
 	return nil
 }
 
