@@ -13,11 +13,7 @@ import (
 func handlePlay(m *telegram.NewMessage) error  { return processPlayCommand(m, false) }
 func handleVPlay(m *telegram.NewMessage) error { return processPlayCommand(m, true) }
 
-func processPlayCommand(m *telegram.NewMessage) error {
-	return processPlayCommandMode(m, false)
-}
-
-func processPlayCommandMode(m *telegram.NewMessage, video bool) error {
+func processPlayCommand(m *telegram.NewMessage, video bool) error {
 	if blocked(m) || m.IsPrivate() {
 		return nil
 	}
@@ -36,9 +32,6 @@ func processPlayCommandMode(m *telegram.NewMessage, video bool) error {
 	}
 	return processPlay(m, query, video)
 }
-
-func handlePlay(m *telegram.NewMessage) error  { return processPlayCommandMode(m, false) }
-func handleVPlay(m *telegram.NewMessage) error { return processPlayCommandMode(m, true) }
 
 func processPlay(m *telegram.NewMessage, query string, video bool) error {
 	chatID := m.ChatID()
@@ -182,12 +175,6 @@ func assistantIn(chatID int64) (present bool, banned bool) {
 			}
 			return true, false
 		}
-		if err != nil {
-			low := strings.ToLower(err.Error())
-			if strings.Contains(low, "user_not_participant") || strings.Contains(low, "not a member") {
-				continue
-			}
-		}
 		if _, err := Assistant.GetChat(id); err == nil {
 			return true, false
 		}
@@ -310,10 +297,6 @@ func tryJoinAssistant(chatID int64, pm *telegram.NewMessage) bool {
 	inviteErr := withFloodWait(func() error { return inviteAssistantViaBot(chatID) })
 	if inviteErr == nil {
 		time.Sleep(800 * time.Millisecond)
-		if ok, _ := assistantIn(chatID); ok {
-			_ = promoteAssistant(chatID)
-			return true
-		}
 		_ = promoteAssistant(chatID)
 		return true
 	}
@@ -336,9 +319,7 @@ func tryJoinAssistant(chatID int64, pm *telegram.NewMessage) bool {
 			_ = promoteAssistant(chatID)
 			return true
 		}
-		if inviteErr == nil {
-			inviteErr = joinErr
-		}
+		inviteErr = joinErr
 	}
 
 	time.Sleep(1200 * time.Millisecond)
