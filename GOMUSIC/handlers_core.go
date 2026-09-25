@@ -248,15 +248,13 @@ func warmLogger() {
 }
 
 func chatTitleOf(chatID int64) string {
-	if Bot == nil {
-		return "Group"
+	chatID = canonChatID(chatID)
+	if g := cachedGroupOf(chatID); g.Title != "" {
+		return g.Title
 	}
-	chat, err := Bot.GetChat(chatID)
-	if err != nil || chat == nil {
-		return "Group"
-	}
-	if t := strings.TrimSpace(chat.Title); t != "" {
-		return t
+	meta := refreshGroupMeta(chatID)
+	if meta.Title != "" {
+		return meta.Title
 	}
 	return "Group"
 }
@@ -280,10 +278,12 @@ func logPlayAction(chatID int64, song Song, queued bool) {
 		log.Println("play log skip: logger id empty")
 		return
 	}
+	go refreshGroupMeta(chatID)
 	name := song.Requester
 	if name == "" {
 		name = "User"
 	}
+	rememberUser(song.RequesterID, name, "")
 	title := song.Title
 	if title == "" {
 		title = "Unknown"
@@ -295,7 +295,7 @@ func logPlayAction(chatID int64, song Song, queued bool) {
 	body := "<blockquote expandable><b>" + head + "</b>\n\n" +
 		smallcaps("user") + " : " + mentionHTML(song.RequesterID, name) + " [<code>" + fmt.Sprintf("%d", song.RequesterID) + "</code>]\n" +
 		smallcaps("group") + " : " + richEsc(chatTitleOf(chatID)) + "\n" +
-		smallcaps("group id") + " : <code>" + fmt.Sprintf("%d", chatID) + "</code>\n" +
+		smallcaps("group id") + " : <code>" + fmt.Sprintf("%d", canonChatID(chatID)) + "</code>\n" +
 		smallcaps("query/song") + " : " + richEsc(title) + "\n" +
 		smallcaps("source") + " : " + richEsc(playSourceOf(song)) + "\n" +
 		smallcaps("mode") + " : " + playModeOf(song, queued) + "</blockquote>"
@@ -316,6 +316,7 @@ func logNewUserStart(m *telegram.NewMessage) {
 	}
 	name := senderFullName(m)
 	uname := senderUsername(m)
+	rememberUser(uid, name, uname)
 	total := getServedUsersCount()
 	body := "<blockquote expandable><b>NEW USER STARTED BOT</b>\n\n" +
 		"<b>NAME</b> — " + mentionHTML(uid, name) + "\n" +
@@ -335,6 +336,7 @@ func handleStart(m *telegram.NewMessage) error {
 	chatID := m.ChatID()
 	_ = addServedUser(uid)
 	addServedChat(chatID)
+	rememberUser(uid, senderFullName(m), senderUsername(m))
 	arg := strings.ToLower(cmdArgs(m))
 	if m.IsPrivate() {
 		go logNewUserStart(m)
@@ -346,6 +348,7 @@ func handleStart(m *telegram.NewMessage) error {
 		addBroadcastChat(chatID, "private")
 		return nil
 	}
+	go refreshGroupMeta(chatID)
 	_, _ = sendQuotedPhoto(chatID, startGroupHTML(), GetGroupStartMarkup())
 	addBroadcastChat(chatID, "group")
 	return nil
