@@ -67,16 +67,20 @@ func groupTypeAndLink(chatID int64) (gtype, link, title string) {
 	if Bot == nil {
 		return
 	}
-	chat, err := Bot.GetChat(chatID)
-	if err != nil || chat == nil {
+	if ch, err := Bot.GetChannel(chatID); err == nil && ch != nil {
+		if strings.TrimSpace(ch.Title) != "" {
+			title = ch.Title
+		}
+		if uname := strings.TrimSpace(ch.Username); uname != "" {
+			gtype = smallcaps("public")
+			link = "https://t.me/" + uname
+		}
 		return
 	}
-	if strings.TrimSpace(chat.Title) != "" {
-		title = chat.Title
-	}
-	if uname := strings.TrimSpace(chat.Username); uname != "" {
-		gtype = smallcaps("public")
-		link = "https://t.me/" + uname
+	if chat, err := Bot.GetChat(chatID); err == nil && chat != nil {
+		if strings.TrimSpace(chat.Title) != "" {
+			title = chat.Title
+		}
 	}
 	return
 }
@@ -157,14 +161,14 @@ func handleParticipant(p *telegram.ParticipantUpdate) error {
 }
 
 func handleServiceMessage(m *telegram.NewMessage) error {
-	if m == nil || m.Message == nil || m.Message.Action == nil || m.IsPrivate() {
+	if m == nil || m.IsPrivate() || !m.IsService() || m.Action == nil {
 		return nil
 	}
 	self := botSelfID()
 	if self == 0 {
 		return nil
 	}
-	kind := strings.ToLower(fmt.Sprintf("%T %v", m.Message.Action, m.Message.Action))
+	kind := strings.ToLower(fmt.Sprintf("%T %v", m.Action, m.Action))
 	hasBot := strings.Contains(kind, fmt.Sprintf("%d", self))
 	added := strings.Contains(kind, "adduser") || strings.Contains(kind, "joined")
 	kicked := strings.Contains(kind, "deleteuser") || strings.Contains(kind, "kick")
