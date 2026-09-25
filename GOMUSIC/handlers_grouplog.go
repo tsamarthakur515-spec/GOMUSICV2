@@ -4,9 +4,13 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/amarnathcjd/gogram/telegram"
 )
+
+var memLogOnce sync.Map
 
 func profileURL(uid int64, username string) string {
 	u := strings.TrimPrefix(strings.TrimSpace(username), "@")
@@ -81,6 +85,13 @@ func logBotMembership(chatID int64, byID int64, byName, byUser string, kicked bo
 	if LoggerID == 0 || chatID == 0 || chatID == LoggerID {
 		return
 	}
+	key := fmt.Sprintf("%d:%v", chatID, kicked)
+	if v, ok := memLogOnce.Load(key); ok {
+		if t, ok := v.(time.Time); ok && time.Since(t) < 10*time.Second {
+			return
+		}
+	}
+	memLogOnce.Store(key, time.Now())
 	gtype, link, title := groupTypeAndLink(chatID)
 	head := smallcaps("bot added in new group")
 	if kicked {
@@ -182,29 +193,11 @@ func handleRawChannelParticipant(u telegram.Update, c *telegram.Client) error {
 		return nil
 	}
 	chatID := int64(-1000000000000) - upd.ChannelID
-	if chatID >= 0 {
-		chatID = -int64(upd.ChannelID)
-	}
-	newName := fmt.Sprintf("%T", upd.NewParticipant)
-	oldName := fmt.Sprintf("%T", upd.PrevParticipant)
-	kicked := strings.Contains(strings.ToLower(newName), "banned") ||
-		strings.Contains(strings.ToLower(newName), "left") ||
-		upd.NewParticipant == nil && upd.PrevParticipant != nil
-	added := strings.Contains(strings.ToLower(newName), "participant") && !kicked
-	if strings.Contains(strings.ToLower(oldName), "empty") || upd.PrevParticipant == nil {
-		added = !kicked
-	}
+	newName := strings.ToLower(fmt.Sprintf("%T", upd.NewParticipant))
+	kicked := strings.Contains(newName, "banned") || strings.Contains(newName, "left") || upd.NewParticipant == nil
+	added := !kicked
 	log.Println("raw channel participant added=", added, "kicked=", kicked, "new=", newName)
-	if !added && !kicked {
-		return nil
-	}
-	byName, byUser := "User", "-"
-	byID := upd.ActorID
-	if c != nil && byID != 0 {
-		if uobj, err := c.GetUser(byID); err == nil {
-			byName, byUser, byID = userBits(uobj)
-		}
-	}
+	byName, byUser, byID := "User", "-", upd.ActorID
 	if added {
 		addServedChat(chatID)
 		addBroadcastChat(chatID, "group")
