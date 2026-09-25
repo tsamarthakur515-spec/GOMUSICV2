@@ -64,6 +64,7 @@ func main() {
 
 	registerHandlers()
 	registerCallbackFallback()
+	go warmLogger()
 	log.Println("draining old telegram updates for 8s")
 	go func() {
 		time.Sleep(8 * time.Second)
