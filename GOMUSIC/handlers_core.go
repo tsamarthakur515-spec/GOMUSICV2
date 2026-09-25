@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"math/rand"
 	"strings"
 	"sync/atomic"
@@ -179,6 +180,22 @@ func helpListCaption(uid int64, name string) string {
 	return helpInner(uid, name)
 }
 
+func sendLogger(text string, markup telegram.ReplyMarkup) {
+	if LoggerID == 0 || Bot == nil {
+		log.Println("logger skip: LOGGER_ID/LOG_GROUP_ID is 0")
+		return
+	}
+	_, err := Bot.SendMessage(LoggerID, text, &telegram.SendOptions{
+		ParseMode:   "HTML",
+		ReplyMarkup: markup,
+	})
+	if err != nil {
+		log.Println("logger send failed:", err)
+	} else {
+		log.Println("logger sent to", LoggerID)
+	}
+}
+
 func chatTitleOf(chatID int64) string {
 	if Bot == nil {
 		return "Group"
@@ -216,6 +233,7 @@ func playModeOf(song Song, queued bool) string {
 
 func logPlayAction(chatID int64, song Song, queued bool) {
 	if LoggerID == 0 || Bot == nil || chatID == 0 {
+		log.Println("play log skip: logger id empty")
 		return
 	}
 	name := song.Requester
@@ -226,7 +244,11 @@ func logPlayAction(chatID int64, song Song, queued bool) {
 	if title == "" {
 		title = "Unknown"
 	}
-	body := "<blockquote expandable><b>" + smallcaps("new play log") + "</b>\n\n" +
+	head := smallcaps("new play log")
+	if queued {
+		head = smallcaps("new queue log")
+	}
+	body := "<blockquote expandable><b>" + head + "</b>\n\n" +
 		smallcaps("user") + " : " + richEsc(name) + " [<code>" + fmt.Sprintf("%d", song.RequesterID) + "</code>]\n" +
 		smallcaps("group") + " : " + richEsc(chatTitleOf(chatID)) + "\n" +
 		smallcaps("group id") + " : <code>" + fmt.Sprintf("%d", chatID) + "</code>\n" +
@@ -239,11 +261,15 @@ func logPlayAction(chatID int64, song Song, queued bool) {
 			{"OPEN PROFILE", fmt.Sprintf("tg://user?id=%d", song.RequesterID)},
 		}})
 	}
-	_, _ = sendHTML(Bot, LoggerID, body, kb)
+	sendLogger(body, kb)
 }
 
 func logNewUserStart(m *telegram.NewMessage) {
-	if LoggerID == 0 || Bot == nil || m == nil || !m.IsPrivate() {
+	if LoggerID == 0 || Bot == nil || m == nil {
+		log.Println("start log skip: logger id empty or no message")
+		return
+	}
+	if !m.IsPrivate() {
 		return
 	}
 	uid := userIDOf(m)
@@ -261,7 +287,7 @@ func logNewUserStart(m *telegram.NewMessage) {
 	kb := mixedKeyboard([][][2]string{{
 		{"OPEN PROFILE", fmt.Sprintf("tg://user?id=%d", uid)},
 	}})
-	_, _ = sendHTML(Bot, LoggerID, body, kb)
+	sendLogger(body, kb)
 }
 
 func handleStart(m *telegram.NewMessage) error {
@@ -272,13 +298,11 @@ func handleStart(m *telegram.NewMessage) error {
 	uid := userIDOf(m)
 	name := userNameOf(m)
 	chatID := m.ChatID()
-	isNew := addServedUser(uid)
+	_ = addServedUser(uid)
 	addServedChat(chatID)
 	arg := strings.ToLower(cmdArgs(m))
 	if m.IsPrivate() {
-		if isNew {
-			go logNewUserStart(m)
-		}
+		go logNewUserStart(m)
 		if arg == "pm_help" {
 			_, _ = sendQuotedPhoto(chatID, helpInner(uid, name), GetHelpMarkup())
 		} else {
